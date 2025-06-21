@@ -1,0 +1,134 @@
+import datetime as dt
+
+from aiogram import Router, F
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.types import Message, CallbackQuery
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
+
+from src.models import SessionLocal
+from src.models.announcement import Announcement
+from src.models.signup import Signup, SignupStatus
+from src.states.signup_states import SignupStates
+from src.keyboards.search_menu import search_menu_kb
+from src.keyboards.ad_list import ad_list_kb
+from src.keyboards.signup_request import signup_kb
+from src.utils.validators import MINSK_TZ
+from src.handlers.request_notify import notify_author
+
+router = Router(name="search")
+
+
+# ───────────── /search ─────────────────────────────────────────
+@router.message(Command("search"))
+async def cmd_search(msg: Message):
+    await msg.answer("Выберите тип тренировки:", reply_markup=search_menu_kb)
+
+
+# ───────────── Платные / Бесплатные ────────────────────────────
+@router.callback_query(F.data.in_({"search_paid", "search_free"}))
+async def choose_type(cb: CallbackQuery):
+    is_paid = cb.data.endswith("paid")
+
+    async with SessionLocal() as session:
+        ads = (
+            await session.scalars(
+                select(Announcement)
+                .options(
+                    selectinload(Announcement.hall),
+                    selectinload(Announcement.signups),
+                )
+                .where(
+                    Announcement.is_paid == is_paid,
+                    Announcement.datetime > dt.datetime.now(MINSK_TZ),
+                )
+                .order_by(Announcement.datetime)
+            )
+        ).all()
+
+    if not ads:
+        await cb.answer("Пока нет объявлений такого типа.", show_alert=True)
+        return
+
+    await cb.message.edit_text("Доступные тренировки:", reply_markup=ad_list_kb(ads))
+    await cb.answer()
+
+
+# ───────────── Выбрано объявление ──────────────────────────────
+@router.callback_query(F.data.startswith("ad_"))
+async def ad_chosen(cb: CallbackQuery, state: FSMContext):
+    ad_id = int(cb.data.split("_")[1])
+
+    async with SessionLocal() as session:
+        exists = await session.scalar(
+            select(Signup.id).where(
+                Signup.announcement_id == ad_id,
+                Signup.player_id == cb.from_user.id,
+                Signup.status.in_([SignupStatus.pending, SignupStatus.accepted]),
+            )
+        )
+
+    if exists:
+        await cb.answer(
+            "У вас уже есть активная заявка на эту тренировку.",
+            show_alert=True,
+        )
+        return
+
+    await cb.message.edit_text(
+        "Нажмите «Записаться», затем отправьте свою роль.",
+        reply_markup=signup_kb(ad_id),
+    )
+    await cb.answer()
+
+
+# ───────────── Нажата кнопка «Записаться» ──────────────────────
+@router.callback_query(F.data.startswith("signup_"))
+async def signup_clicked(cb: CallbackQuery, state: FSMContext):
+    ad_id = int(cb.data.split("_")[1])
+    await state.update_data(ad_id=ad_id)
+    await cb.message.edit_text("Введите свою игровую роль (или «-»)")
+    await state.set_state(SignupStates.waiting_for_role)
+    await cb.answer()
+
+
+# ───────────── Получили роль от игрока ─────────────────────────
+@router.message(SignupStates.waiting_for_role)
+async def got_role(msg: Message, state: FSMContext):
+    role = msg.text.strip() or "-"
+    data = await state.get_data()
+    ad_id = data["ad_id"]
+
+    async with SessionLocal() as session:
+        # если раньше была declined, переиспользуем запись
+        signup = await session.scalar(
+            select(Signup).where(
+                Signup.announcement_id == ad_id,
+                Signup.player_id == msg.from_user.id,
+                Signup.status == SignupStatus.declined,
+            )
+        )
+        if signup:
+            signup.status = SignupStatus.pending
+            signup.role   = role
+        else:
+            signup = Signup(
+                announcement_id=ad_id,
+                player_id=msg.from_user.id,
+                role=role,
+            )
+            session.add(signup)
+
+        await session.commit()
+        await session.refresh(signup)
+
+        ad = await session.get(
+            Announcement, ad_id, options=[selectinload(Announcement.hall)]
+        )
+
+    # уведомляем автора
+    await notify_author(msg.bot, ad, msg.from_user, role, signup.id)
+
+    await msg.answer("Запрос отправлен автору. Ожидайте подтверждения.")
+    await state.clear()

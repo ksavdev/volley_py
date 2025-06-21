@@ -1,0 +1,18 @@
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      retries: 5
+    # ↓ никакого network_mode и container_name — не нужны
+  bot:
+    build: .
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy   # ждать пока БД «оживёт»

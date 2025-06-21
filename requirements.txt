@@ -1,0 +1,5 @@
+aiogram>=3.0,<4.0           # Асинхронный фреймворк Telegram Bot API (3.x):contentReference[oaicite:0]{index=0}:contentReference[oaicite:1]{index=1}
+SQLAlchemy>=2.0,<3.0        # ORM для работы с БД (поддерживает асинхронный движок)
+asyncpg==0.30.0             # Асинхронный PostgreSQL драйвер для SQLAlchemy
+alembic>=1.10,<2.0          # Инструмент для миграций БД
+python-dotenv>=1.0          # Для загрузки переменных окружения из .env
