@@ -1,29 +1,32 @@
+# src/models/base.py
 from __future__ import annotations
-
 import os
-from dotenv import load_dotenv
+
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, registry
 
-load_dotenv()                                       # ← берёт переменные из .env
+DATABASE_URL = os.getenv("DATABASE_URL")  # <-- берём из .env
 
-# ---------- URL к базе ----------
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL not set")
-
-# ---------- движок / сессии ----------
-engine = create_async_engine(DATABASE_URL, echo=False)
-
-SessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
-    bind=engine,
-    autoflush=False,
-    expire_on_commit=False,
+# ─── engine ───────────────────────────────────────────────────
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    future=True,
 )
 
-class Base(DeclarativeBase):                        # единственный Base
-    pass
+# ─── фабрика сессий ───────────────────────────────────────────
+SessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
+    engine,
+    expire_on_commit=False,
+    class_=AsyncSession,
+)
+
+# ─── Declarative Base ─────────────────────────────────────────
+mapper_registry = registry()
+
+class Base(DeclarativeBase):
+    registry = mapper_registry

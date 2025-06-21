@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Запускаем бота
-CMD alembic upgrade head && python -m src.main
+CMD python -m src.main
