@@ -63,3 +63,9 @@ def choose_field_keyboard(ad_id: int) -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
+def announcement_manage_keyboard(announcement):
+    # Можно использовать manage_keyboard или choose_field_keyboard, в зависимости от вашей логики.
+    # Например, если нужен выбор полей для редактирования:
+    return choose_field_keyboard(announcement.id)

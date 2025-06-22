@@ -153,3 +153,21 @@ async def is_paid_answer(cb: CallbackQuery, state: FSMContext):
     await cb.message.edit_text(text)
     await state.clear()
     await cb.answer("Сохранено!")
+
+def render_announcement(ann, hall_name=None):
+    from src.utils.helpers import local
+    local_dt = local(ann.datetime)
+    if hall_name is None:
+        hall_name = getattr(ann, "hall", None)
+        hall_name = getattr(hall_name, "name", "-") if hall_name else "-"
+    return (
+        "🏐 <b>Объявление</b>\n"
+        f"ID: <code>{ann.id}</code>\n"
+        f"Зал: {hall_name}\n"
+        f"Дата/время: {local_dt.strftime('%d.%m.%Y %H:%M')}\n"
+        f"Нужно игроков: {ann.players_need}\n"
+        f"Роли: {ann.roles}\n"
+        f"Мячи: {'нужны' if ann.balls_need else 'не нужны'}\n"
+        f"Ограничения: {ann.restrictions}\n"
+        f"Тип: {'Платная' if ann.is_paid else 'Бесплатная'}"
+    )
