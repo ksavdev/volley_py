@@ -3,13 +3,12 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.bot import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from src.config import BOT_TOKEN
+from src.config import BOT_TOKEN, settings
 from src.handlers import router as main_router
 
 
 async def on_startup(bot: Bot):
     print("Бот запущен успешно")
-
 
 async def main() -> None:
     # ↓ передаём parse_mode через DefaultBotProperties

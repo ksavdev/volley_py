@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv
+from typing import Set
 
 load_dotenv()
 
@@ -9,10 +10,14 @@ DB_PASSWORD     = os.getenv("POSTGRES_PASSWORD")
 DB_NAME         = os.getenv("POSTGRES_DB")
 DB_HOST         = os.getenv("POSTGRES_HOST", "db")
 DB_PORT         = os.getenv("POSTGRES_PORT", "5432")
+ADMINS: Set[int] = {int(x) for x in os.getenv("ADMINS", "").split(",") if x}
 
-DATABASE_URL = (
-    f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
+class Settings:
+    @property
+    def database_url(self):
+        return os.getenv("DATABASE_URL")
+
+settings = Settings()
 
 if not BOT_TOKEN:
     raise RuntimeError("Переменная окружения BOT_TOKEN обязательна!")

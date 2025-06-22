@@ -2,16 +2,15 @@
 from __future__ import annotations
 import os
 
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
-from sqlalchemy.orm import DeclarativeBase, registry
+from dotenv import load_dotenv
+load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL")  # <-- берём из .env
+from src.config import settings
+DATABASE_URL = settings.database_url
 
-# ─── engine ───────────────────────────────────────────────────
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.orm import registry, DeclarativeBase
+
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
