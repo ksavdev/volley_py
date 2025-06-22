@@ -2,6 +2,7 @@ import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.client.bot import DefaultBotProperties
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.types import BotCommand
 
 from src.config import BOT_TOKEN, settings
 from src.handlers import router as main_router
@@ -15,9 +16,20 @@ async def main() -> None:
     bot = Bot(
         token=BOT_TOKEN,
         default=DefaultBotProperties(parse_mode="HTML")
+    
+    
     )
 
+    await bot.set_my_commands([
+        BotCommand(command="start", description="Запустить бота"),
+        BotCommand(command="new", description="Создать объявление"),
+        BotCommand(command="my", description="Мои объявления"),
+        BotCommand(command="search", description="Найти тренировку"),
+        BotCommand(command="requests", description="Мои заявки"),
+        BotCommand(command="add_hall", description="Добавить зал"),
+    ])
     dp = Dispatcher(storage=MemoryStorage())
+    
     dp.include_router(main_router)
     dp.startup.register(on_startup)
 
