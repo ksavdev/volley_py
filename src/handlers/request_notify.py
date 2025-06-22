@@ -1,13 +1,14 @@
+# src/handlers/request_notify.py
+
 from aiogram import Bot
 from aiogram.types import User as TgUser
-from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models import SessionLocal
-from src.models.user import User        # ORM-модель
+from src.models.user import User
 from src.models.announcement import Announcement
 from src.keyboards.confirm_yes_no import confirm_kb
 from src.utils.helpers import local
-
 
 async def notify_author(
     bot: Bot,
@@ -17,13 +18,12 @@ async def notify_author(
     signup_id: int,
 ) -> None:
     """
-    Шлёт автору объявления карточку с заявкой + кнопки ✅/❌.
-    Включает рейтинг игрока.
+    Шлёт автору карточку с новой заявкой и динамическую клавиатуру.
     """
-    # ── достаём рейтинг из БД ─────────────────────────────────
+    # ─ достаём рейтинг игрока ─────────────────────────────────
     async with SessionLocal() as session:
         db_user = await session.get(User, player.id)
-        rating  = f"{db_user.rating:.2f}" if db_user else "—"
+        rating = f"{db_user.rating:.2f}" if db_user else "—"
 
     text = (
         f"📥 <b>Новая заявка</b>\n\n"
@@ -42,5 +42,4 @@ async def notify_author(
             disable_notification=True,
         )
     except Exception as e:
-        # Логируем, если автор заблокировал бота и т. д.
         print(f"[notify_author] send_message error: {e!r}")

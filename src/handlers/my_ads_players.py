@@ -1,4 +1,5 @@
 # src/handlers/my_ads_players.py
+
 from __future__ import annotations
 
 from aiogram import Router, F
@@ -14,78 +15,57 @@ from src.utils.helpers import local
 
 router = Router(name="players")
 
-
-# ────────────────────── вспомогалка ──────────────────────────
-async def _render_players(message, ad: Announcement) -> None:
-    """Обновить сообщение со списком игроков."""
-    # отбираем только заявки со статусом 'accepted'
-    accepted = [su for su in ad.signups if su.status == SignupStatus.accepted]
-
-    await message.edit_text(
-        f"Принятые игроки ({ad.hall.name} "
-        f"{local(ad.datetime).strftime('%d.%m %H:%M')}):",
-        reply_markup=players_kb(accepted, ad.id),
-    )
-
-
-# ────────── «Игроки» в меню /my (author) ─────────────────────
 @router.callback_query(F.data.startswith("players_"))
 async def show_players(cb: CallbackQuery):
-    ad_id = int(cb.data.split("_")[1])
+    """
+    Обработчик для кнопки 'Игроки' в меню объявления.
+    Ожидает callback_data == "players_{announcement_id}".
+    """
+    # 1) Извлекаем ID объявления
+    _, a_id = cb.data.split("_", 1)
+    announcement_id = int(a_id)
 
+    # 2) Выбираем объявление вместе с hall и всеми signups->player
     async with SessionLocal() as session:
-        # Загружаем объявление вместе со всеми signups и привязанными игроками
-        ad = await session.get(
-            Announcement,
-            ad_id,
-            options=[
+        result = await session.execute(
+            select(Announcement)
+            .options(
                 selectinload(Announcement.hall),
-                # Снимаем фильтр в лидере, просто грузим все signups + player
                 selectinload(Announcement.signups)
                     .selectinload(Signup.player),
-            ],
-        )
-
-    if not ad:
-        await cb.answer("Объявление не найдено.", show_alert=True)
-        return
-
-    # Рендерим отфильтрованный список принятых игроков
-    await _render_players(cb.message, ad)
-    await cb.answer()
-
-
-# ────────── Автор удаляет игрока до игры ──────────────────────
-@router.callback_query(F.data.startswith("kick_"))
-async def kick_player(cb: CallbackQuery):
-    ad_id, player_id = map(int, cb.data.split("_")[1:])
-
-    async with SessionLocal() as session:
-        signup = await session.scalar(
-            select(Signup).where(
-                Signup.announcement_id == ad_id,
-                Signup.player_id == player_id,
-                Signup.status == SignupStatus.accepted,
             )
+            .where(Announcement.id == announcement_id)
         )
-        if not signup:
-            await cb.answer("Игрок уже убран.", show_alert=True)
-            return
+        announcement = result.scalar_one_or_none()
 
-        # Меняем статус и сохраняем
-        signup.status = SignupStatus.declined
-        await session.commit()
+    if not announcement:
+        return await cb.answer("Объявление не найдено.", show_alert=True)
 
-        # Обновляем объявление, чтобы _render_players увидел изменение
-        await session.refresh(signup.announcement)
-        ad = signup.announcement
+    # 3) Фильтруем только принятых игроков и собираем (id, name, rating)
+    players: list[tuple[int, str, float]] = []
+    for su in announcement.signups:
+        if su.status != SignupStatus.accepted:
+            continue
+        if su.player:
+            name = su.player.first_name or su.player.username or str(su.player_id)
+            rating = float(getattr(su.player, "rating", 0.0))
+        else:
+            # Фоллбэк: если User в БД не найден
+            name = str(su.player_id)
+            rating = 0.0
+        players.append((su.player_id, name, rating))
 
-    # Шлём уведомление игроку
-    await cb.bot.send_message(
-        player_id,
-        "⛔️ Автор отменил вашу запись на тренировку."
-    )
+    # 4) Строим текст и клавиатуру
+    when = local(announcement.datetime).strftime("%d.%m %H:%M")
+    header = f"🏐 Игроки ({announcement.hall.name} • {when})\n\n"
+    if not players:
+        body = "Нет принятых игроков."
+    else:
+        body = "\n".join(f"{n} ⭐{rt:.2f}" for _, n, rt in players)
 
-    # Перерисовываем список принятых игроков
-    await _render_players(cb.message, ad)
-    await cb.answer("Игрок удалён ✅")
+    kb = players_kb(players, announcement_id)
+
+    # 5) Редактируем сообщение у автора
+    await cb.message.edit_text(header + body, reply_markup=kb)
+    # 6) Убираем «loading» у кнопки
+    await cb.answer()

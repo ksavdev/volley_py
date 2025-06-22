@@ -27,6 +27,8 @@ class SignupStatus(str, Enum):
 class Signup(Base):
     __tablename__ = "signups"
 
+
+
     # ────── колонки ────────────────────────────────────────────────
     id:            Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
     player_id:     Mapped[int] = Column(Integer,   ForeignKey("users.id", ondelete="CASCADE"))
