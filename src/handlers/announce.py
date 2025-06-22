@@ -1,4 +1,7 @@
+# src/handlers/announce.py
+
 import datetime as dt
+
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -14,9 +17,23 @@ from src.keyboards.halls import halls_keyboard
 from src.keyboards.yes_no import yes_no_kb
 from src.utils import validators
 from src.utils.helpers import local          # ← импорт хелпера
+from aiogram.fsm.context import FSMContext
+from src.states.hall_request_states import HallRequestStates
+
+
 
 router = Router()
 
+@router.callback_query(AnnounceStates.waiting_for_hall, F.data == "hall_request_admin")
+async def request_new_hall(cb: CallbackQuery, state: FSMContext):
+    """
+    Пользователь нажал «Сообщить админу, что зала нет»,
+    находимся в шаге выбора зала.
+    """
+    await cb.message.edit_text("❓ Введите, пожалуйста, название вашего зала:")
+    await state.set_state(HallRequestStates.waiting_for_hall_name)
+    await cb.answer()
+    
 # ───────────── /new ────────────────────────────────────────────
 @router.message(Command("new"))
 async def cmd_new(message: Message, state: FSMContext):
@@ -28,14 +45,16 @@ async def cmd_new(message: Message, state: FSMContext):
     await message.answer("Выберите зал:", reply_markup=halls_keyboard(halls))
     await state.set_state(AnnounceStates.waiting_for_hall)
 
+
 # ─────────────────── Выбор зала ─────────────────────────────────
 @router.callback_query(AnnounceStates.waiting_for_hall, F.data.startswith("hall_"))
 async def hall_chosen(cb: CallbackQuery, state: FSMContext):
-    hall_id = int(cb.data.split("_")[1])
+    hall_id = int(cb.data.split("_", 1)[1])
     await state.update_data(hall_id=hall_id)
     await cb.message.edit_text("Введите дату тренировки в формате <b>ДД.ММ.ГГГГ</b>")
     await state.set_state(AnnounceStates.waiting_for_date)
     await cb.answer()
+
 
 # ───────────────────── Ввод даты ────────────────────────────────
 @router.message(AnnounceStates.waiting_for_date)
@@ -48,6 +67,7 @@ async def got_date(msg: Message, state: FSMContext):
     await state.update_data(date=date_obj)
     await msg.answer("Введите время тренировки в формате <b>ЧЧ:ММ</b>")
     await state.set_state(AnnounceStates.waiting_for_time)
+
 
 # ─────────────────── Ввод времени ───────────────────────────────
 @router.message(AnnounceStates.waiting_for_time)
@@ -63,6 +83,7 @@ async def got_time(msg: Message, state: FSMContext):
     await msg.answer("Сколько игроков нужно? Введите <b>число</b>.")
     await state.set_state(AnnounceStates.waiting_for_players_cnt)
 
+
 # ─────────────── Количество игроков ────────────────────────────
 @router.message(AnnounceStates.waiting_for_players_cnt)
 async def got_players(msg: Message, state: FSMContext):
@@ -75,12 +96,14 @@ async def got_players(msg: Message, state: FSMContext):
     await msg.answer("Укажите роли (например: «связка, нападающие») или «-»")
     await state.set_state(AnnounceStates.waiting_for_roles)
 
+
 # ─────────────────── Указание ролей ─────────────────────────────
 @router.message(AnnounceStates.waiting_for_roles)
 async def got_roles(msg: Message, state: FSMContext):
     await state.update_data(roles=msg.text.strip() or "-")
     await msg.answer("Нужны ли свои мячи?", reply_markup=yes_no_kb)
     await state.set_state(AnnounceStates.waiting_for_balls_needed)
+
 
 # ─────────────── Нужны ли мячи ─────────────────────────────────
 @router.callback_query(AnnounceStates.waiting_for_balls_needed, F.data.in_({"yes", "no"}))
@@ -90,12 +113,14 @@ async def balls_answer(cb: CallbackQuery, state: FSMContext):
     await state.set_state(AnnounceStates.waiting_for_restrictions)
     await cb.answer()
 
+
 # ───────────────── Ограничения ─────────────────────────────────
 @router.message(AnnounceStates.waiting_for_restrictions)
 async def got_restr(msg: Message, state: FSMContext):
     await state.update_data(restrictions=msg.text.strip() or "-")
     await msg.answer("Тренировка платная?", reply_markup=yes_no_kb)
     await state.set_state(AnnounceStates.waiting_for_is_paid)
+
 
 # ────────────── Платная / Бесплатная ───────────────────────────
 @router.callback_query(AnnounceStates.waiting_for_is_paid, F.data.in_({"yes", "no"}))
@@ -108,7 +133,7 @@ async def is_paid_answer(cb: CallbackQuery, state: FSMContext):
     )
 
     async with SessionLocal() as session:
-        # 1. гарантируем, что автор есть
+        # 1. Гарантируем, что пользователь есть в БД
         user = await session.get(User, cb.from_user.id)
         if user is None:
             user = User(
@@ -119,25 +144,27 @@ async def is_paid_answer(cb: CallbackQuery, state: FSMContext):
             session.add(user)
             await session.flush()
 
-        # 2. создаём объявление
+        # 2. Создаём объявление
         ann = Announcement(
-            author_id   = user.id,
-            hall_id     = data["hall_id"],
-            datetime    = dt_full,
-            players_need= data["players"],
-            roles       = data["roles"],
-            balls_need  = data["balls_need"],
-            restrictions= data["restrictions"],
-            is_paid     = data["is_paid"],
+            author_id    = user.id,
+            hall_id      = data["hall_id"],
+            datetime     = dt_full,
+            players_need = data["players"],
+            roles        = data["roles"],
+            balls_need   = data["balls_need"],
+            restrictions = data["restrictions"],
+            is_paid      = data["is_paid"],
         )
         session.add(ann)
         await session.commit()
         await session.refresh(ann)
 
-        hall_name = (await session.scalar(select(Hall.name).where(Hall.id == ann.hall_id)))
+        hall_name = (
+            await session.scalar(select(Hall.name).where(Hall.id == ann.hall_id))
+        )
 
     # ───────── формируем текст с локализацией времени ──────────
-    local_dt = local(ann.datetime)      # ← используем helper
+    local_dt = local(ann.datetime)
     text = (
         "🏐 <b>Объявление создано</b>\n"
         f"ID: <code>{ann.id}</code>\n"
@@ -154,13 +181,26 @@ async def is_paid_answer(cb: CallbackQuery, state: FSMContext):
     await state.clear()
     await cb.answer("Сохранено!")
 
-def render_announcement(ann, hall_name=None):
-    from src.utils.helpers import local
+
+def render_announcement(ann, hall_name=None) -> str:
+    """
+    Функция сборки текста для любого объявления.
+    Используется и при показе /my_ads, и при обновлении после
+    принятия/отклонения заявок.
+    """
+    now = dt.datetime.now(validators.MINSK_TZ)
     local_dt = local(ann.datetime)
+
+    header = ""
+    if ann.datetime <= now:
+        header = "❌ <b>Тренировка прошла</b>\n\n"
+
     if hall_name is None:
-        hall_name = getattr(ann, "hall", None)
-        hall_name = getattr(hall_name, "name", "-") if hall_name else "-"
+        hall = getattr(ann, "hall", None)
+        hall_name = hall.name if hall else "-"
+
     return (
+        f"{header}"
         "🏐 <b>Объявление</b>\n"
         f"ID: <code>{ann.id}</code>\n"
         f"Зал: {hall_name}\n"

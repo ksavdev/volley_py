@@ -31,6 +31,12 @@ def manage_keyboard(ad_id: int) -> InlineKeyboardMarkup:
         ]
     )
 
+def expired_announcement_keyboard(ad_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="« Назад в меню", callback_data="main_menu")
+        ]
+    ])
 
 def choose_field_keyboard(ad_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(

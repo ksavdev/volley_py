@@ -1,3 +1,5 @@
+# src/handlers/search.py
+
 import datetime as dt
 
 from aiogram import Router, F
@@ -23,13 +25,21 @@ router = Router(name="search")
 # ───────────── /search ─────────────────────────────────────────
 @router.message(Command("search"))
 async def cmd_search(msg: Message):
+    """
+    Шаг 1: Пользователь вводит /search — показываем меню платно/бесплатно.
+    """
     await msg.answer("Выберите тип тренировки:", reply_markup=search_menu_kb)
 
 
 # ───────────── Платные / Бесплатные ────────────────────────────
 @router.callback_query(F.data.in_({"search_paid", "search_free"}))
 async def choose_type(cb: CallbackQuery):
-    is_paid = cb.data.endswith("paid")
+    """
+    Шаг 2: Пользователь выбрал платную или бесплатную тренировку.
+    Отображаем только будущие объявления.
+    """
+    is_paid = cb.data == "search_paid"
+    now = dt.datetime.now(MINSK_TZ)
 
     async with SessionLocal() as session:
         ads = (
@@ -41,7 +51,7 @@ async def choose_type(cb: CallbackQuery):
                 )
                 .where(
                     Announcement.is_paid == is_paid,
-                    Announcement.datetime > dt.datetime.now(MINSK_TZ),
+                    Announcement.datetime > now,               # только будущие
                 )
                 .order_by(Announcement.datetime)
             )
@@ -51,14 +61,29 @@ async def choose_type(cb: CallbackQuery):
         await cb.answer("Пока нет объявлений такого типа.", show_alert=True)
         return
 
-    await cb.message.edit_text("Доступные тренировки:", reply_markup=ad_list_kb(ads))
+    await cb.message.edit_text(
+        "Доступные тренировки:", 
+        reply_markup=ad_list_kb(ads)
+    )
     await cb.answer()
 
 
 # ───────────── Выбрано объявление ──────────────────────────────
 @router.callback_query(F.data.startswith("ad_"))
 async def ad_chosen(cb: CallbackQuery, state: FSMContext):
-    ad_id = int(cb.data.split("_")[1])
+    """
+    Шаг 3: Пользователь выбрал конкретное объявление из списка.
+    Проверяем, нет ли у него уже активной заявки, и предлагаем записаться.
+    """
+    ad_id = int(cb.data.split("_", 1)[1])
+    now = dt.datetime.now(MINSK_TZ)
+
+    # Блокируем запись на уже прошедшую тренировку
+    async with SessionLocal() as session:
+        ad = await session.get(Announcement, ad_id)
+    if ad.datetime <= now:
+        await cb.answer("К сожалению, эта тренировка уже прошла.", show_alert=True)
+        return
 
     async with SessionLocal() as session:
         exists = await session.scalar(
@@ -86,9 +111,12 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
 # ───────────── Нажата кнопка «Записаться» ──────────────────────
 @router.callback_query(F.data.startswith("signup_"))
 async def signup_clicked(cb: CallbackQuery, state: FSMContext):
-    ad_id = int(cb.data.split("_")[1])
+    """
+    Шаг 4: Пользователь нажал «Записаться» — ждём роль.
+    """
+    ad_id = int(cb.data.split("_", 1)[1])
     await state.update_data(ad_id=ad_id)
-    await cb.message.edit_text("Введите свою игровую роль (или «-»)")
+    await cb.message.edit_text("Введите свою игровую роль (или «-»):")
     await state.set_state(SignupStates.waiting_for_role)
     await cb.answer()
 
@@ -96,12 +124,15 @@ async def signup_clicked(cb: CallbackQuery, state: FSMContext):
 # ───────────── Получили роль от игрока ─────────────────────────
 @router.message(SignupStates.waiting_for_role)
 async def got_role(msg: Message, state: FSMContext):
+    """
+    Шаг 5: Пользователь ввёл роль — сохраняем заявку и уведомляем автора.
+    """
     role = msg.text.strip() or "-"
     data = await state.get_data()
     ad_id = data["ad_id"]
 
     async with SessionLocal() as session:
-        # если раньше была declined, переиспользуем запись
+        # Повторно открываем заявку, если была declined
         signup = await session.scalar(
             select(Signup).where(
                 Signup.announcement_id == ad_id,
@@ -111,7 +142,7 @@ async def got_role(msg: Message, state: FSMContext):
         )
         if signup:
             signup.status = SignupStatus.pending
-            signup.role   = role
+            signup.role = role
         else:
             signup = Signup(
                 announcement_id=ad_id,
@@ -124,7 +155,9 @@ async def got_role(msg: Message, state: FSMContext):
         await session.refresh(signup)
 
         ad = await session.get(
-            Announcement, ad_id, options=[selectinload(Announcement.hall)]
+            Announcement,
+            ad_id,
+            options=[selectinload(Announcement.hall)]
         )
 
     # уведомляем автора

@@ -18,7 +18,7 @@ def halls_keyboard(halls: Sequence[Hall]) -> InlineKeyboardMarkup:
     rows.append(
         [
             InlineKeyboardButton(
-                text="➕ Сообщить администратору, что зала нет",
+                text="➕ Нет нужного зала?",
                 callback_data="hall_request_admin"
             )
         ]
