@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
-from sqlalchemy import select
 from sqlalchemy.orm import selectinload
+from sqlalchemy import select
 
 from src.models import SessionLocal
 from src.models.signup import Signup, SignupStatus
@@ -17,15 +17,22 @@ router = Router(name="players")
 
 # ────────────────────── вспомогалка ──────────────────────────
 async def _render_players(message, ad: Announcement) -> None:
-    """Обновить сообщение со списком игроков."""
-    # берём только подтверждённых
+    """
+    Обновить сообщение со списком игроков.
+    Берём только заявки со статусом 'accepted'.
+    """
     accepted = [su for su in ad.signups if su.status == SignupStatus.accepted]
 
-    await message.edit_text(
-        f"Принятые игроки ({ad.hall.name} "
-        f"{local(ad.datetime).strftime('%d.%m %H:%M')}):",
-        reply_markup=players_kb(accepted, ad.id),
-    )
+    if not accepted:
+        text = "Принятые игроки:\n\nПока нет игроков"
+        # если есть кнопка «Назад» — передайте её сюда вместо None
+        await message.edit_text(text, reply_markup=None)
+    else:
+        await message.edit_text(
+            f"Принятые игроки ({ad.hall.name} "
+            f"{local(ad.datetime).strftime('%d.%m %H:%M')}):",
+            reply_markup=players_kb(accepted, ad.id),
+        )
 
 
 # ────────── «Игроки» в меню /my (author) ─────────────────────
@@ -33,16 +40,14 @@ async def _render_players(message, ad: Announcement) -> None:
 async def show_players(cb: CallbackQuery):
     ad_id = int(cb.data.split("_")[1])
 
-    async with SessionLocal() as s:
-        ad = await s.get(
+    async with SessionLocal() as session:
+        ad = await session.get(
             Announcement,
             ad_id,
             options=[
                 selectinload(Announcement.hall),
-                # грузим сразу только accepted-записи + player
-                selectinload(
-                    Announcement.signups.and_(Signup.status == SignupStatus.accepted)
-                ).selectinload(Signup.player),
+                selectinload(Announcement.signups)
+                .selectinload(Signup.player),
             ],
         )
 
@@ -59,9 +64,10 @@ async def show_players(cb: CallbackQuery):
 async def kick_player(cb: CallbackQuery):
     ad_id, player_id = map(int, cb.data.split("_")[1:])
 
-    async with SessionLocal() as s:
-        signup = await s.scalar(
-            select(Signup).where(
+    async with SessionLocal() as session:
+        signup = await session.scalar(
+            select(Signup)
+            .where(
                 Signup.announcement_id == ad_id,
                 Signup.player_id == player_id,
                 Signup.status == SignupStatus.accepted,
@@ -72,18 +78,18 @@ async def kick_player(cb: CallbackQuery):
             return
 
         signup.status = SignupStatus.declined
-        await s.commit()
+        await session.commit()
 
-        # обновляем объект объявления, чтобы снова передать в _render_players
-        await s.refresh(signup.announcement)
+        # Обновляем объявление, чтобы в _render_players были актуальные данные
+        await session.refresh(signup.announcement)
         ad = signup.announcement
 
-    # уведомляем игрока
+    # Уведомляем игрока
     await cb.bot.send_message(
         player_id,
-        "⛔️ Автор отменил вашу запись на тренировку.",
+        "⛔️ Автор отменил вашу запись на тренировку."
     )
 
-    # перерисовываем список на месте
+    # Перерисовываем список на месте
     await _render_players(cb.message, ad)
     await cb.answer("Игрок удалён ✅")
