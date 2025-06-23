@@ -1,11 +1,9 @@
-# src/handlers/search.py
-
 import datetime as dt
 
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -25,20 +23,13 @@ router = Router(name="search")
 
 @router.message(Command("search"))
 async def cmd_search(msg: Message):
-    """
-    Шаг 1: выбор платных / бесплатных тренировок.
-    """
-    await msg.answer(
-        "Выберите тип тренировки:",
-        reply_markup=search_menu_kb()
-    )
+    """Шаг 1: выбор платных/бесплатных."""
+    await msg.answer("Выберите тип тренировки:", reply_markup=search_menu_kb())
 
 
 @router.callback_query(F.data.in_({"search_paid", "search_free"}))
 async def choose_type(cb: CallbackQuery):
-    """
-    Шаг 2: список будущих объявлений выбранного типа.
-    """
+    """Шаг 2: список будущих объявлений."""
     is_paid = (cb.data == "search_paid")
     now     = dt.datetime.now(MINSK_TZ)
 
@@ -48,7 +39,7 @@ async def choose_type(cb: CallbackQuery):
                 select(Announcement)
                 .options(
                     selectinload(Announcement.hall),
-                    selectinload(Announcement.signups)
+                    selectinload(Announcement.signups),
                 )
                 .where(
                     Announcement.is_paid   == is_paid,
@@ -59,8 +50,7 @@ async def choose_type(cb: CallbackQuery):
         ).all()
 
     if not ads:
-        await cb.answer("Ничего не найдено.", show_alert=True)
-        return
+        return await cb.answer("Ничего не найдено.", show_alert=True)
 
     await cb.message.edit_text(
         "Доступные тренировки:",
@@ -71,33 +61,24 @@ async def choose_type(cb: CallbackQuery):
 
 @router.callback_query(F.data == "search_menu")
 async def back_to_search_menu(cb: CallbackQuery):
-    """
-    Возврат на выбор платных/бесплатных.
-    """
-    await cb.message.edit_text(
-        "Выберите тип тренировки:",
-        reply_markup=search_menu_kb()
-    )
+    """Назад на выбор типа."""
+    await cb.message.edit_text("Выберите тип тренировки:", reply_markup=search_menu_kb())
     await cb.answer()
 
 
 @router.callback_query(F.data.startswith("ad_"))
 async def ad_chosen(cb: CallbackQuery, state: FSMContext):
-    """
-    Шаг 3: подробная карточка тренировки + кнопки «Записаться» / «Назад».
-    Показывает зал, адрес, дату, слоты и принятых игроков.
-    """
+    """Шаг 3: подробная карточка + кнопки «Записаться»/«Назад»."""
     ad_id = int(cb.data.split("_", 1)[1])
     now   = dt.datetime.now(MINSK_TZ)
 
-    # — загружаем объявление вместе с hall и signups->player
+    # Подгружаем объявление + hall + signups->player
     async with SessionLocal() as session:
         result = await session.execute(
             select(Announcement)
             .options(
                 selectinload(Announcement.hall),
-                selectinload(Announcement.signups)
-                    .selectinload(Signup.player),
+                selectinload(Announcement.signups).selectinload(Signup.player),
             )
             .where(Announcement.id == ad_id)
         )
@@ -106,55 +87,27 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
     if not ad:
         return await cb.answer("Объявление не найдено.", show_alert=True)
 
-    # — проверяем, что тренировка ещё не прошла
     if ad.datetime <= now:
         return await cb.answer("К сожалению, эта тренировка уже прошла.", show_alert=True)
 
-    # — считаем занятые слоты и список игроков
-    accepted = [s for s in ad.signups if s.status == SignupStatus.accepted]
+    # Считаем слоты и собираем список принятых
+    accepted    = [s for s in ad.signups if s.status == SignupStatus.accepted]
     total_slots = ad.players_need
     taken_slots = len(accepted)
-        # ← НОВЫЙ БЛОК: если все слоты заняты
-    if taken_slots >= total_slots:
-        # Показываем тот же баннер с инфой, но без кнопки «Записаться»
-        when = local(ad.datetime).strftime("%d.%m.%Y %H:%M")
-        hall_name    = ad.hall.name if ad.hall else "—"
-        hall_address = getattr(ad.hall, "address", "—")
-        text = (
-            f"🏟 <b>Зал:</b> {hall_name}\n"
-            f"📍 <b>Адрес:</b> {hall_address}\n"
-            f"📅 <b>Дата/Время:</b> {when}\n\n"
-            f"👥 <b>Игроки ({taken_slots}/{total_slots}):</b>\n" +
-            "\n".join(f"- {s.player.first_name or '—'} ({s.role})" for s in accepted) +
-            "\n\n❌ Все слоты заняты."
-        )
-        # используем вашу клавиатуру «Назад»:
-        await cb.message.edit_text(text, reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="« Назад", callback_data="search_menu")]
-            ]
-        ))
-        return
+
     if accepted:
         players_list = "\n".join(
             f"- {s.player.first_name or '—'} ({s.role})"
             for s in accepted
         )
-        players_block = (
-            f"👥 <b>Игроки ({taken_slots}/{total_slots}):</b>\n"
-            f"{players_list}\n\n"
-        )
+        players_block = f"👥 <b>Игроки ({taken_slots}/{total_slots}):</b>\n{players_list}\n\n"
     else:
         players_block = f"👥 <b>Игроки ({taken_slots}/{total_slots}):</b> нет\n\n"
 
-    # — локализуем дату/время
     when = local(ad.datetime).strftime("%d.%m.%Y %H:%M")
-
-    # — информация по залу
     hall_name    = ad.hall.name if ad.hall else "—"
     hall_address = getattr(ad.hall, "address", "—")
 
-    # — итоговый текст
     text = (
         f"🏟 <b>Зал:</b> {hall_name}\n"
         f"📍 <b>Адрес:</b> {hall_address}\n"
@@ -163,18 +116,13 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
         "✍️ Нажмите «Записаться», затем отправьте свою роль."
     )
 
-    await cb.message.edit_text(
-        text,
-        reply_markup=signup_kb(ad_id, ad.is_paid)
-    )
+    await cb.message.edit_text(text, reply_markup=signup_kb(ad_id, ad.is_paid))
     await cb.answer()
 
 
 @router.callback_query(F.data.startswith("signup_"))
 async def signup_clicked(cb: CallbackQuery, state: FSMContext):
-    """
-    Шаг 4: пользователь нажал «Записаться» — ждём роль.
-    """
+    """Шаг 4: ждём ввод роли."""
     ad_id = int(cb.data.split("_", 1)[1])
     await state.update_data(ad_id=ad_id)
     await cb.message.edit_text("Введите свою игровую роль (или «-»):")
@@ -184,19 +132,32 @@ async def signup_clicked(cb: CallbackQuery, state: FSMContext):
 
 @router.message(SignupStates.waiting_for_role)
 async def got_role(msg: Message, state: FSMContext):
-    """
-    Шаг 5: сохраняем роль, создаём/обновляем заявку и уведомляем автора.
-    """
+    """Шаг 5: сохраняем заявку и уведомляем автора, но только если нет дублей."""
     role = msg.text.strip() or "-"
     data = await state.get_data()
     ad_id = data["ad_id"]
 
     async with SessionLocal() as session:
+        # Проверяем, нет ли уже pending/accepted
+        exists = await session.scalar(
+            select(Signup.id).where(
+                Signup.announcement_id == ad_id,
+                Signup.player_id       == msg.from_user.id,
+                Signup.status.in_([SignupStatus.pending, SignupStatus.accepted])
+            )
+        )
+        if exists:
+            # Убираем состояние, сообщаем и выходим
+            await msg.answer("У вас уже есть активная заявка на эту тренировку.")
+            await state.clear()
+            return
+
+        # Если раньше была declined — переиспользуем
         signup = await session.scalar(
             select(Signup).where(
                 Signup.announcement_id == ad_id,
                 Signup.player_id       == msg.from_user.id,
-                Signup.status          == SignupStatus.declined,
+                Signup.status          == SignupStatus.declined
             )
         )
         if signup:
@@ -206,18 +167,19 @@ async def got_role(msg: Message, state: FSMContext):
             signup = Signup(
                 announcement_id=ad_id,
                 player_id      = msg.from_user.id,
-                role           = role,
+                role           = role
             )
             session.add(signup)
 
         await session.commit()
         await session.refresh(signup)
+
+        # подгружаем для уведомления автора
         ad = await session.get(
-            Announcement, ad_id,
-            options=[selectinload(Announcement.hall)]
+            Announcement, ad_id, options=[selectinload(Announcement.hall)]
         )
 
-    # уведомление автору
+    # Уведомляем автора
     await notify_author(msg.bot, ad, msg.from_user, role, signup.id)
 
     await msg.answer("✅ Запрос отправлен. Ожидайте подтверждения.")
