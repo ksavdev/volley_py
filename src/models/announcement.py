@@ -20,15 +20,15 @@ class Announcement(Base):
     __tablename__ = "announcements"
 
     # ────── колонки ────────────────────────────────────────────────
-    id:            Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
-    author_id:     Mapped[int] = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
-    hall_id:       Mapped[int] = Column(Integer,    ForeignKey("halls.id", ondelete="RESTRICT"))
+    id:            Mapped[int]    = Column(Integer, primary_key=True, autoincrement=True)
+    author_id:     Mapped[int]    = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    hall_id:       Mapped[int]    = Column(Integer,    ForeignKey("halls.id", ondelete="RESTRICT"))
     datetime:      Mapped[dt.datetime] = Column(DateTime(timezone=True), nullable=False)
-    players_need:  Mapped[int]  = Column(Integer, nullable=False)
-    roles:         Mapped[str]  = Column(String(120), nullable=True)
-    balls_need:    Mapped[bool] = Column(Boolean, nullable=False)
-    restrictions:  Mapped[str]  = Column(String(120), nullable=True)
-    is_paid:       Mapped[bool] = Column(Boolean, nullable=False)
+    players_need:  Mapped[int]    = Column(Integer, nullable=False)
+    roles:         Mapped[str]    = Column(String(120), nullable=True)
+    balls_need:    Mapped[bool]   = Column(Boolean, nullable=False)
+    restrictions:  Mapped[str]    = Column(String(120), nullable=True)
+    is_paid:       Mapped[bool]   = Column(Boolean, nullable=False)
     created_at:    Mapped[dt.datetime] = Column(
         DateTime(timezone=True),
         default=dt.datetime.utcnow,
@@ -36,7 +36,7 @@ class Announcement(Base):
     )
 
     # ────── связи ──────────────────────────────────────────────────
-    hall                   = relationship("Hall")
+    hall                  = relationship("Hall")
     signups: Mapped[list["Signup"]] = relationship(
         "Signup",                       # ‼️ явное имя целевой модели
         back_populates="announcement",

@@ -1,5 +1,3 @@
-# src/handlers/my_signups.py
-
 import datetime as dt
 
 from aiogram import Router, F
@@ -121,6 +119,9 @@ async def cancel_signup(cb: CallbackQuery):
 
         # переводим статус в отклонённый
         signup.status = SignupStatus.declined
+        # возвращаем слот обратно в объявлении
+        signup.announcement.players_need += 1
+
         await s.commit()
 
     # уведомляем автора
