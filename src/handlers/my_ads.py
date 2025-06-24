@@ -4,7 +4,7 @@ from datetime import timedelta
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -37,21 +37,19 @@ async def cmd_my_ads(message: Message):
         ).all()
 
     if not ads:
-        await message.answer("У вас пока нет объявлений.")
-        return
+        return await message.answer("У вас пока нет объявлений.")
 
     await message.answer("Ваши объявления:", reply_markup=list_keyboard(ads))
 
 
-# ───────────── показать/отменить запись на тренировку ────────────
+# ───────────── показать список записавшихся игроков ────────────
 @router.callback_query(F.data.startswith("players_"))
 async def show_players(cb: CallbackQuery):
-    # делегируем в отдельный модуль
     from src.handlers.my_ads_players import show_players as _show
     await _show(cb)
 
 
-# ───────────── открыть объявление ──────────────────────────────
+# ───────────── открыть детали объявления ───────────────────────
 @router.callback_query(
     F.data.startswith("myad_")
     & ~F.data.startswith(("myad_del_", "myad_edit_"))
@@ -60,12 +58,13 @@ async def show_players(cb: CallbackQuery):
 async def myad_chosen(cb: CallbackQuery):
     ad_id = int(cb.data.split("_")[1])
     async with SessionLocal() as session:
-        ad = await session.get(Announcement, ad_id, options=[selectinload(Announcement.hall)])
+        ad = await session.get(
+            Announcement, ad_id, options=[selectinload(Announcement.hall)]
+        )
     if not ad or ad.author_id != cb.from_user.id:
-        await cb.answer("Объявление не найдено.", show_alert=True)
-        return
+        return await cb.answer("Объявление не найдено.", show_alert=True)
 
-    info = (
+    text = (
         f"<b>ID:</b> {ad.id}\n"
         f"<b>Зал:</b> {ad.hall.name}\n"
         f"<b>Дата/время:</b> {local(ad.datetime).strftime('%d.%m.%Y %H:%M')}\n"
@@ -75,7 +74,7 @@ async def myad_chosen(cb: CallbackQuery):
         f"<b>Ограничения:</b> {ad.restrictions}\n"
         f"<b>Тип:</b> {'Платная' if ad.is_paid else 'Бесплатная'}"
     )
-    await cb.message.edit_text(info, reply_markup=manage_keyboard(ad.id))
+    await cb.message.edit_text(text, reply_markup=manage_keyboard(ad.id))
     await cb.answer()
 
 
@@ -86,26 +85,25 @@ async def myad_delete(cb: CallbackQuery):
     async with SessionLocal() as session:
         ad = await session.get(Announcement, ad_id)
         if not ad or ad.author_id != cb.from_user.id:
-            await cb.answer("Объявление не найдено.", show_alert=True)
-            return
+            return await cb.answer("Объявление не найдено.", show_alert=True)
         await session.delete(ad)
         await session.commit()
+
     await cb.message.edit_text(f"Объявление ID {ad_id} удалено ✅")
     await cb.answer("Удалено!", show_alert=True)
 
 
-# ───────────── инициировать изменение ──────────────────────────
+# ───────────── инициировать редактирование ─────────────────────
 @router.callback_query(F.data.startswith("myad_edit_"))
 async def myad_edit(cb: CallbackQuery, state: FSMContext):
     ad_id = int(cb.data.split("_")[2])
-    # проверяем, что тренировка не прошла более часа назад
     async with SessionLocal() as session:
         ad = await session.get(Announcement, ad_id)
     now = dt.datetime.now(validators.MINSK_TZ)
     if now > ad.datetime + timedelta(hours=1):
         return await cb.answer(
             "⏳ Тренировка прошла более часа назад — редактирование невозможно.",
-            show_alert=True
+            show_alert=True,
         )
 
     await state.update_data(ad_id=ad_id)
@@ -114,18 +112,34 @@ async def myad_edit(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
 
 
-# ───────────── выбор поля для редактирования ───────────────────
+# ───────────── отмена редактирования ──────────────────────────
+@router.callback_query(F.data == "edit_cancel")
+async def cancel_edit(cb: CallbackQuery, state: FSMContext):
+    await cb.message.edit_text("❌ Редактирование отменено.")
+    await state.clear()
+    await cb.answer()
+
+
+# ───────────── старт редактирования «Кол-во игроков» ───────────
+@router.callback_query(F.data.startswith("edit_field_players_"))
+async def start_edit_players(cb: CallbackQuery, state: FSMContext):
+    ad_id = int(cb.data.rsplit("_", 1)[1])
+    await state.update_data(ad_id=ad_id, field="players")
+    await cb.message.edit_text("Введите новое количество игроков (число)")
+    await state.set_state(EditStates.editing_players)
+    await cb.answer()
+
+
+# ───────────── выбор любого другого поля ────────────────────────
 @router.callback_query(EditStates.choosing_field, F.data.startswith("edit_field_"))
 async def choose_field(cb: CallbackQuery, state: FSMContext):
-    # edit_field_<field>_<id>
-    parts = cb.data.split("_")
+    parts = cb.data.split("_")   # ["edit","field","<name>","<id>"]
     field = parts[2]
     await state.update_data(field=field)
 
     prompts = {
-        "date":     "Введите новую дату <b>ДД.ММ.ГГГГ</b>",
+        "date":     "Введите новую дату <b>ДД.MM.ГГГГ</b>",
         "time":     "Введите новое время <b>ЧЧ:ММ</b>",
-        "players":  "Введите новое количество игроков (число)",
         "roles":    "Введите новые роли или «-»",
         "balls":    "Нужны ли мячи? (да/нет)",
         "restrict": "Введите новые ограничения или «-»",
@@ -136,7 +150,6 @@ async def choose_field(cb: CallbackQuery, state: FSMContext):
     mapping = {
         "date":     EditStates.editing_date,
         "time":     EditStates.editing_time,
-        "players":  EditStates.editing_players,
         "roles":    EditStates.editing_roles,
         "balls":    EditStates.editing_balls,
         "restrict": EditStates.editing_restrict,
@@ -146,15 +159,15 @@ async def choose_field(cb: CallbackQuery, state: FSMContext):
     await cb.answer()
 
 
-# ───────────── общий helper для применения изменений ────────────
+# ───────────── общий helper для сохранения и рендера ────────────
 async def _apply_edit(cb_msg: Message | CallbackQuery, state: FSMContext, *, new_dt: dt.datetime = None, **fields):
     data = await state.get_data()
     ad_id = data["ad_id"]
 
     async with SessionLocal() as session:
-        ad = await session.get(Announcement, ad_id)
+        ad = await session.get(Announcement, ad_id, options=[selectinload(Announcement.hall)])
         if not ad:
-            await cb_msg.answer("Объявление не найдено.")
+            await cb_msg.answer("❗️ Объявление не найдено.", show_alert=True)
             await state.clear()
             return
 
@@ -167,9 +180,27 @@ async def _apply_edit(cb_msg: Message | CallbackQuery, state: FSMContext, *, new
         await session.commit()
         await session.refresh(ad)
 
-    await cb_msg.answer("Изменено ✅")
+    await cb_msg.answer("✅ Изменено!")
+
+    # заново отрисовать детали
+    text = (
+        f"<b>ID:</b> {ad.id}\n"
+        f"<b>Зал:</b> {ad.hall.name}\n"
+        f"<b>Дата/время:</b> {local(ad.datetime).strftime('%d.%m.%Y %H:%M')}\n"
+        f"<b>Нужно игроков:</b> {ad.players_need}\n"
+        f"<b>Роли:</b> {ad.roles}\n"
+        f"<b>Мячи:</b> {'нужны' if ad.balls_need else 'не нужны'}\n"
+        f"<b>Ограничения:</b> {ad.restrictions}\n"
+        f"<b>Тип:</b> {'Платная' if ad.is_paid else 'Бесплатная'}"
+    )
+    kb = manage_keyboard(ad.id)
+
+    if isinstance(cb_msg, CallbackQuery):
+        await cb_msg.message.edit_text(text, reply_markup=kb)
+    else:
+        await cb_msg.answer(text, reply_markup=kb)
+
     await state.clear()
-    await myad_chosen(cb_msg if isinstance(cb_msg, CallbackQuery) else cb_msg.as_event())
 
 
 # ─────────────── 1. Изменение ДАТЫ ────────────────────────────
@@ -245,11 +276,3 @@ async def edit_paid(msg: Message, state: FSMContext):
     if text not in {"да", "нет"}:
         return await msg.reply("Напишите «да» или «нет».")
     await _apply_edit(msg, state, is_paid=(text == "да"))
-
-
-# ─────────────── Отмена редактирования ─────────────────────────
-@router.callback_query(EditStates.choosing_field, F.data == "edit_cancel")
-async def edit_cancel(cb: CallbackQuery, state: FSMContext):
-    await cb.message.edit_text("Изменение отменено.")
-    await state.clear()
-    await cb.answer()

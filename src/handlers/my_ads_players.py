@@ -44,19 +44,19 @@ async def show_players(cb: CallbackQuery):
     if not announcement:
         return await cb.answer("Объявление не найдено.", show_alert=True)
 
-    # 3) Собираем только принятых игроков
-    players: list[tuple[int, str, float]] = []
+    # 3) Собираем только принятых игроков вместе с их ролями и рейтингом
+    players: list[tuple[int, str, str, float]] = []
     for su in announcement.signups:
         if su.status != SignupStatus.accepted:
             continue
+        role = su.role or "-"
         if su.player:
             name = su.player.first_name or su.player.username or str(su.player_id)
             rating = float(getattr(su.player, "rating", 0.0))
         else:
-            # fallback — игрока нет в БД
             name = str(su.player_id)
             rating = 0.0
-        players.append((su.player_id, name, rating))
+        players.append((su.player_id, name, role, rating))
 
     # 4) Формируем заголовок
     when = local(announcement.datetime).strftime("%d.%m %H:%M")
@@ -66,13 +66,13 @@ async def show_players(cb: CallbackQuery):
     if not players:
         body = "Нет принятых игроков."
     else:
-        body = "\n".join(f"{name} ⭐{rating:.2f}" for _, name, rating in players)
+        body = "\n".join(f"{name} ({role}) ⭐{rating:.2f}" for _, name, role, rating in players)
 
     kb = players_kb(players, announcement_id)
 
     # 6) Редактируем сообщение
     await cb.message.edit_text(header + body, reply_markup=kb)
-    await cb.answer()  # гасим индикатор
+    await cb.answer()
 
 
 @router.callback_query(F.data.startswith("back:"))
@@ -106,4 +106,4 @@ async def back_to_announcement(cb: CallbackQuery):
 
     # 4) Редактируем сообщение у автора
     await cb.message.edit_text(text, reply_markup=kb)
-    await cb.answer()  # гасим индикатор
+    await cb.answer()
