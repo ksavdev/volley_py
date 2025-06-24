@@ -34,10 +34,15 @@ async def cmd_requests(msg: Message):
                 )
                 .where(
                     Signup.player_id == msg.from_user.id,
-                    Signup.status.in_([SignupStatus.pending, SignupStatus.accepted]),
-                    Signup.announcement.has(
-                        Announcement.datetime > dt.datetime.now(MINSK_TZ)
-                    ),
+                    Signup.status.in_([
+                        SignupStatus.pending,
+                        SignupStatus.accepted,
+                        SignupStatus.declined
+                    ]),
+                    # Уберите или закомментируйте фильтр по дате, если хотите видеть все заявки:
+                    # Signup.announcement.has(
+                    #     Announcement.datetime > dt.datetime.now(MINSK_TZ)
+                    # ),
                 )
                 .order_by(Signup.created_at)
             )
@@ -142,6 +147,28 @@ async def cancel_signup(cb: CallbackQuery):
 # ───────────── Вернуться к списку заявок ─────────────────────
 @router.callback_query(F.data == "requests_back")
 async def requests_back(cb: CallbackQuery):
-    # просто пересоздаём список
-    await cmd_requests(cb.message)
+    async with SessionLocal() as s:
+        signups = (
+            await s.scalars(
+                select(Signup)
+                .options(
+                    selectinload(Signup.announcement)
+                        .selectinload(Announcement.hall)
+                )
+                .where(
+                    Signup.player_id == cb.from_user.id,
+                    Signup.status.in_([
+                        SignupStatus.pending,
+                        SignupStatus.accepted,
+                        SignupStatus.declined
+                    ]),
+                )
+                .order_by(Signup.created_at)
+            )
+        ).all()
+
+    if not signups:
+        await cb.message.edit_text("У вас нет активных заявок.", reply_markup=None)
+    else:
+        await cb.message.edit_text("Мои заявки:", reply_markup=list_kb(signups))
     await cb.answer()

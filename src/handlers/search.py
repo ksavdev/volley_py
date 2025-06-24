@@ -190,24 +190,25 @@ async def got_role(msg: Message, state: FSMContext):
             await state.clear()
             return
 
-        # переиспользуем declined, если был
-        signup = await session.scalar(
-            select(Signup).where(
+        # запретить повторную подачу, если была отклонена
+        declined = await session.scalar(
+            select(Signup.id).where(
                 Signup.announcement_id == ad_id,
                 Signup.player_id == msg.from_user.id,
                 Signup.status == SignupStatus.declined
             )
         )
-        if signup:
-            signup.status = SignupStatus.pending
-            signup.role = role
-        else:
-            signup = Signup(
-                announcement_id=ad_id,
-                player_id=msg.from_user.id,
-                role=role
-            )
-            session.add(signup)
+        if declined:
+            await msg.answer("Ваша заявка была отклонена и вы не можете подать её повторно.")
+            await state.clear()
+            return
+
+        signup = Signup(
+            announcement_id=ad_id,
+            player_id=msg.from_user.id,
+            role=role
+        )
+        session.add(signup)
 
         await session.commit()
         await session.refresh(signup)

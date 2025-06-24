@@ -6,28 +6,27 @@ from src.utils.helpers import local
 
 def list_kb(signups: Sequence[Signup]) -> InlineKeyboardMarkup:
     """
-    Клавиатура со списком активных (pending/accepted) заявок игрока.
+    Клавиатура со списком всех заявок игрока, включая отклонённые.
     """
+    from src.handlers.my_signups import status_labels  # импортируйте, если нужно
+
     rows: list[list[InlineKeyboardButton]] = []
-    active_statuses = {SignupStatus.pending, SignupStatus.accepted}
 
     for s in signups:
-        if s.status not in active_statuses:
-            continue
-
         ann  = s.announcement
         dt   = local(ann.datetime).strftime("%d.%m %H:%M")
         hall = ann.hall.name
-        text = f"{hall} • {dt} • {s.status.name}"
+        status = status_labels.get(s.status, s.status.name)
+        text = f"{hall} • {dt} • {status}"
         rows.append([InlineKeyboardButton(text=text, callback_data=f"myreq_{s.id}")])
 
     if not rows:
         rows.append(
-            [InlineKeyboardButton(text="Нет активных заявок", callback_data="noop")]
+            [InlineKeyboardButton(text="Нет заявок", callback_data="noop")]
         )
 
     # Назад в главное меню
-    rows.append([InlineKeyboardButton(text="« Назад", callback_data="main_back")])
+    rows.append([InlineKeyboardButton(text="« Назад", callback_data="requests_back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

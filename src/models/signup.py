@@ -4,6 +4,7 @@ import datetime as dt
 from enum import Enum
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     Enum as PgEnum,
@@ -31,7 +32,7 @@ class Signup(Base):
 
     # ────── колонки ────────────────────────────────────────────────
     id:            Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
-    player_id:     Mapped[int] = Column(Integer,   ForeignKey("users.id", ondelete="CASCADE"))
+    player_id:     Mapped[int] = Column(BigInteger,   ForeignKey("users.id", ondelete="CASCADE"))
     announcement_id: Mapped[int] = Column(
         Integer,
         ForeignKey("announcements.id", ondelete="CASCADE"),
