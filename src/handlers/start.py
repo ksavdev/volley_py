@@ -1,13 +1,12 @@
 from decimal import Decimal
-
 from aiogram import Router
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, BotCommand
 from aiogram import Bot
-
 from src.config import ADMINS
 from src.models import SessionLocal
 from src.models.user import User
+from src.keyboards.main_menu import main_menu_kb
 
 router = Router()
 
@@ -17,7 +16,7 @@ async def on_start(message: Message):
     tg_id = tg_user.id
     username = tg_user.username
     first_name = tg_user.first_name or ""
-    last_name = tg_user.last_name  # может быть None
+    last_name = tg_user.last_name
 
     async with SessionLocal() as session:
         db_user = await session.get(User, tg_id)
@@ -33,11 +32,19 @@ async def on_start(message: Message):
             )
             session.add(user)
             await session.commit()
+        else:
+            # обновляем имя/username если изменились
+            db_user.username = username
+            db_user.first_name = first_name
+            db_user.last_name = last_name
+            await session.commit()
 
-    await message.answer(
-        "👋 Привет! Этот бот поможет найти волейбольную тренировку или собрать игроков.\n"
-        "Основное меню появится позже во время разработки."
+    text = (
+        f"👋 Привет, {first_name or 'игрок'}!\n\n"
+        "Я помогу найти или создать тренировку по волейболу в Минске.\n"
+        "Выберите действие из меню ниже 👇"
     )
+    await message.answer(text, reply_markup=main_menu_kb(tg_id))
 
 @router.message(Command("start"))
 async def cmd_start(msg: Message, bot: Bot):
