@@ -1,3 +1,5 @@
+version: "3.9"
+
 services:
   db:
     image: postgres:15-alpine
@@ -9,10 +11,26 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
       retries: 5
-    # ↓ никакого network_mode и container_name — не нужны
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
   bot:
     build: .
     env_file: .env
     depends_on:
       db:
-        condition: service_healthy   # ждать пока БД «оживёт»
+        condition: service_healthy
+    command: python -m src.main
+
+  adminer:
+    image: adminer
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+
+volumes:
+  db_data:
