@@ -9,7 +9,8 @@ from . import (
     my_signups,
     my_ads_players,
     add_hall,
-    hall_request
+    hall_request,
+    menu
 )
 # убрали debug_any_callback!
 
@@ -24,3 +25,4 @@ router.include_router(my_signups.router)
 router.include_router(my_ads_players.router)
 router.include_router(add_hall.router)
 router.include_router(hall_request.router)
+router.include_router(menu.router)
