@@ -5,7 +5,8 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from src.config import ADMINS
-from src.states.admin_states import AdminDMStates
+from src.states.admin_states import AdminDMStates, AdminStates
+from src.keyboards.back_cancel import back_cancel_kb
 
 router = Router()
 
@@ -38,3 +39,14 @@ async def got_text(message: Message, state: FSMContext):
         await message.reply(f"Ошибка при отправке: {e!r}")
     finally:
         await state.clear()
+
+@router.message(AdminStates.waiting_for_broadcast_text)
+async def admin_broadcast_step(msg: Message, state: FSMContext):
+    if msg.text == "❌ Отмена":
+        await msg.answer("Рассылка отменена.", reply_markup=None)
+        await state.clear()
+        return
+    if msg.text == "⬅️ Назад":
+        await msg.answer("Выберите действие администратора.", reply_markup=None)
+        await state.set_state(AdminStates.waiting_for_action)
+        return

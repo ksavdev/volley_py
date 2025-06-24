@@ -17,6 +17,7 @@ from sqlalchemy.orm import Mapped, relationship
 
 from .announcement import Announcement
 from .base import Base
+from src.states.signup_states import SignupStates
 
 
 class SignupStatus(str, Enum):

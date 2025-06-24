@@ -10,7 +10,10 @@ from src.models import SessionLocal
 from src.models.signup import Signup, SignupStatus
 from src.models.announcement import Announcement
 from src.keyboards.my_signups import list_kb
+from src.keyboards.back_cancel import back_cancel_kb
 from src.utils.helpers import MINSK_TZ, local
+from aiogram.fsm.context import FSMContext
+from src.states.signup_states import SignupStates
 
 router = Router(name="my_signups")
 
@@ -172,3 +175,17 @@ async def requests_back(cb: CallbackQuery):
     else:
         await cb.message.edit_text("Мои заявки:", reply_markup=list_kb(signups))
     await cb.answer()
+
+
+@router.message(SignupStates.waiting_for_comment)
+async def signup_comment_step(msg: Message, state: FSMContext):
+    if msg.text == "❌ Отмена":
+        await msg.answer("Заявка отменена.", reply_markup=None)
+        await state.clear()
+        return
+    if msg.text == "⬅️ Назад":
+        await msg.answer("Выберите объявление для заявки.", reply_markup=None)
+        await state.set_state(SignupStates.waiting_for_announcement)
+        return
+    await state.update_data(comment=msg.text.strip())
+    # ...дальнейшие шаги...

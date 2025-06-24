@@ -3,20 +3,38 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from src.states.hall_request_states import HallRequestStates
 from src.config import ADMINS
+from src.keyboards.back_cancel import back_cancel_kb
 
 router = Router(name="hall_request")
 
 @router.message(HallRequestStates.waiting_for_hall_name)
-async def got_hall_name(msg: Message, state: FSMContext):
+async def hall_name_step(msg: Message, state: FSMContext):
+    if msg.text == "❌ Отмена":
+        await msg.answer("Добавление зала отменено.", reply_markup=None)
+        await state.clear()
+        return
+    if msg.text == "⬅️ Назад":
+        await msg.answer("Действие отменено. Вернитесь в меню.", reply_markup=None)
+        await state.clear()
+        return
     await state.update_data(hall_name=msg.text.strip())
-    await msg.answer("📍 Теперь введите адрес зала (город, улица, дом):")
+    await msg.answer("Введите адрес зала:", reply_markup=back_cancel_kb())
     await state.set_state(HallRequestStates.waiting_for_hall_address)
 
 @router.message(HallRequestStates.waiting_for_hall_address)
-async def got_hall_address(msg: Message, state: FSMContext):
+async def hall_address_step(msg: Message, state: FSMContext):
+    if msg.text == "❌ Отмена":
+        await msg.answer("Добавление зала отменено.", reply_markup=None)
+        await state.clear()
+        return
+    if msg.text == "⬅️ Назад":
+        await msg.answer("Введите название зала:", reply_markup=back_cancel_kb())
+        await state.set_state(HallRequestStates.waiting_for_hall_name)
+        return
+    await state.update_data(hall_address=msg.text.strip())
     data = await state.get_data()
     hall_name = data["hall_name"]
-    address = msg.text.strip()
+    address = data["hall_address"]
     user = msg.from_user
 
     text = (

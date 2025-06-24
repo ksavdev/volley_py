@@ -16,6 +16,7 @@ from src.models.user import User
 from src.keyboards.halls import halls_keyboard
 from src.keyboards.yes_no import yes_no_kb
 from src.keyboards.cancel import cancel_kb
+from src.keyboards.back_cancel import back_cancel_kb
 from src.utils import validators
 from src.utils.helpers import local
 
@@ -45,7 +46,7 @@ async def cmd_new(message: Message, state: FSMContext):
 async def hall_chosen(cb: CallbackQuery, state: FSMContext):
     hall_id = int(cb.data.split("_", 1)[1])
     await state.update_data(hall_id=hall_id)
-    await cb.message.answer("Введите дату тренировки в формате <b>ДД.MM.ГГГГ</b>", reply_markup=cancel_kb())
+    await cb.message.answer("Введите дату тренировки в формате <b>ДД.MM.ГГГГ</b>", reply_markup=back_cancel_kb())
     await state.set_state(AnnounceStates.waiting_for_date)
     await cb.answer()
 
@@ -56,15 +57,21 @@ async def got_date(msg: Message, state: FSMContext):
         await msg.answer("Создание объявления отменено.", reply_markup=None)
         await state.clear()
         return
+    if msg.text == "⬅️ Назад":
+        async with SessionLocal() as session:
+            halls = (await session.scalars(select(Hall).order_by(Hall.name))).all()
+        await msg.answer("Выберите зал:", reply_markup=halls_keyboard(halls))
+        await state.set_state(AnnounceStates.waiting_for_hall)
+        return
 
     try:
         date_obj = validators.parse_date(msg.text)
     except ValueError as e:
-        await msg.reply(f"{e}\n\nПример: 25.06.2025", reply_markup=cancel_kb())
+        await msg.reply(f"{e}\n\nПример: 25.06.2025", reply_markup=back_cancel_kb())
         return
 
     await state.update_data(date=date_obj)
-    await msg.answer("Введите время тренировки в формате <b>ЧЧ:ММ</b>", reply_markup=cancel_kb())
+    await msg.answer("Введите время тренировки в формате <b>ЧЧ:ММ</b>", reply_markup=back_cancel_kb())
     await state.set_state(AnnounceStates.waiting_for_time)
 
 
@@ -74,17 +81,21 @@ async def got_time(msg: Message, state: FSMContext):
         await msg.answer("Создание объявления отменено.", reply_markup=None)
         await state.clear()
         return
+    if msg.text == "⬅️ Назад":
+        await msg.answer("Введите дату тренировки в формате <b>ДД.MM.ГГГГ</b>", reply_markup=back_cancel_kb())
+        await state.set_state(AnnounceStates.waiting_for_date)
+        return
 
     data = await state.get_data()
     try:
         time_obj = validators.parse_time(msg.text)
         validators.future_datetime(data["date"], time_obj)
     except ValueError as e:
-        await msg.reply(f"{e}\n\nПример: 19:00", reply_markup=cancel_kb())
+        await msg.reply(f"{e}\n\nПример: 19:00", reply_markup=back_cancel_kb())
         return
 
     await state.update_data(time=time_obj)
-    await msg.answer("Сколько игроков нужно? Введите <b>число</b>.", reply_markup=cancel_kb())
+    await msg.answer("Сколько игроков нужно? Введите <b>число</b>.", reply_markup=back_cancel_kb())
     await state.set_state(AnnounceStates.waiting_for_players_cnt)
 
 
@@ -94,15 +105,19 @@ async def got_players(msg: Message, state: FSMContext):
         await msg.answer("Создание объявления отменено.", reply_markup=None)
         await state.clear()
         return
+    if msg.text == "⬅️ Назад":
+        await msg.answer("Введите время тренировки в формате <b>ЧЧ:ММ</b>", reply_markup=back_cancel_kb())
+        await state.set_state(AnnounceStates.waiting_for_time)
+        return
 
     try:
         players = validators.is_positive_int(msg.text)
     except ValueError as e:
-        await msg.reply(f"{e}\n\nПример: 12", reply_markup=cancel_kb())
+        await msg.reply(f"{e}\n\nПример: 12", reply_markup=back_cancel_kb())
         return
 
     await state.update_data(players=players)
-    await msg.answer("Укажите роли (например: «связка, нападающие») или «-»", reply_markup=cancel_kb())
+    await msg.answer("Укажите роли (например: «связка, нападающие») или «-»", reply_markup=back_cancel_kb())
     await state.set_state(AnnounceStates.waiting_for_roles)
 
 
@@ -111,6 +126,10 @@ async def got_roles(msg: Message, state: FSMContext):
     if msg.text == "❌ Отмена":
         await msg.answer("Создание объявления отменено.", reply_markup=None)
         await state.clear()
+        return
+    if msg.text == "⬅️ Назад":
+        await msg.answer("Сколько игроков нужно? Введите <b>число</b>.", reply_markup=back_cancel_kb())
+        await state.set_state(AnnounceStates.waiting_for_players_cnt)
         return
 
     await state.update_data(roles=msg.text.strip() or "-")
@@ -121,8 +140,7 @@ async def got_roles(msg: Message, state: FSMContext):
 @router.callback_query(AnnounceStates.waiting_for_balls_needed, F.data.in_({"yes", "no"}))
 async def balls_answer(cb: CallbackQuery, state: FSMContext):
     await state.update_data(balls_need=(cb.data == "yes"))
-    await cb.message.edit_text("Ограничения? (например: «18+», «только мужчины») или «-»")
-    await cb.message.answer("Ограничения? (например: «18+», «только мужчины») или «-»", reply_markup=cancel_kb())
+    await cb.message.answer("Ограничения? (например: «18+», «только мужчины») или «-»", reply_markup=back_cancel_kb())
     await state.set_state(AnnounceStates.waiting_for_restrictions)
     await cb.answer()
 
@@ -132,6 +150,10 @@ async def got_restr(msg: Message, state: FSMContext):
     if msg.text == "❌ Отмена":
         await msg.answer("Создание объявления отменено.", reply_markup=None)
         await state.clear()
+        return
+    if msg.text == "⬅️ Назад":
+        await msg.answer("Нужны ли свои мячи?", reply_markup=yes_no_kb)
+        await state.set_state(AnnounceStates.waiting_for_balls_needed)
         return
 
     await state.update_data(restrictions=msg.text.strip() or "-")
