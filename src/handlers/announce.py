@@ -20,6 +20,7 @@ from src.keyboards.back_cancel import back_cancel_kb
 from src.utils import validators
 from src.utils.helpers import local
 
+
 router = Router()
 
 
@@ -242,3 +243,19 @@ def render_announcement(ann: Announcement, hall_name: str = None) -> str:
         f"Ограничения: {ann.restrictions}\n"
         f"Тип: {'Платная' if ann.is_paid else 'Бесплатная'}"
     )
+
+
+@router.callback_query(F.data.startswith("delete_ad_"))
+async def delete_ad(cb: CallbackQuery):
+    ann_id = int(cb.data.split("_")[-1])
+    async with SessionLocal() as session:
+        ann = await session.get(Announcement, ann_id)
+        now = dt.datetime.now(local.tz)
+        if ann.datetime < now:
+            await cb.message.answer("Нельзя удалять прошедшие тренировки!")
+            return
+        session.delete(ann)
+        await session.commit()
+
+    await cb.message.answer("Объявление удалено.", reply_markup=None)
+    await cb.answer()

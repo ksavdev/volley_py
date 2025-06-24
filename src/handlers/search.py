@@ -1,6 +1,7 @@
 # src/handlers/search.py
 
 import datetime as dt
+from src.utils.helpers import MINSK_TZ
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -31,7 +32,6 @@ async def cmd_search(msg: Message):
 
 @router.callback_query(F.data.in_({"search_paid", "search_free"}))
 async def choose_type(cb: CallbackQuery):
-    """Шаг 2: список будущих объявлений."""
     is_paid = (cb.data == "search_paid")
     now = dt.datetime.now(MINSK_TZ)
 
@@ -39,20 +39,18 @@ async def choose_type(cb: CallbackQuery):
         ads = (
             await session.scalars(
                 select(Announcement)
-                .options(
-                    selectinload(Announcement.hall),
-                    selectinload(Announcement.signups),
-                )
                 .where(
                     Announcement.is_paid == is_paid,
-                    Announcement.datetime > now,
+                    Announcement.datetime > now  # ← фильтр только будущие тренировки
                 )
                 .order_by(Announcement.datetime)
             )
         ).all()
 
     if not ads:
-        return await cb.answer("Ничего не найдено.", show_alert=True)
+        await cb.message.edit_text("Нет подходящих тренировок.", reply_markup=None)
+        await cb.answer()
+        return
 
     await cb.message.edit_text(
         "Доступные тренировки:",

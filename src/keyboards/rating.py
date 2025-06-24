@@ -1,10 +1,12 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-def rating_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton("1", callback_data="rate_1"),
-         InlineKeyboardButton("2", callback_data="rate_2"),
-         InlineKeyboardButton("3", callback_data="rate_3"),
-         InlineKeyboardButton("4", callback_data="rate_4"),
-         InlineKeyboardButton("5", callback_data="rate_5")]
-    ])
+def rating_kb():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton("⭐️ 1"), KeyboardButton("⭐️ 2"), KeyboardButton("⭐️ 3")],
+            [KeyboardButton("⭐️ 4"), KeyboardButton("⭐️ 5")],
+            [KeyboardButton("❌ Пропустить")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )

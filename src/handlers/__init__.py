@@ -10,7 +10,8 @@ from . import (
     my_ads_players,
     add_hall,
     hall_request,
-    menu
+    menu,
+    profile
 )
 # убрали debug_any_callback!
 
@@ -26,3 +27,4 @@ router.include_router(my_ads_players.router)
 router.include_router(add_hall.router)
 router.include_router(hall_request.router)
 router.include_router(menu.router)
+router.include_router(profile.router)

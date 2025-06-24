@@ -99,7 +99,7 @@ async def myad_edit(cb: CallbackQuery, state: FSMContext):
     ad_id = int(cb.data.split("_")[2])
     async with SessionLocal() as session:
         ad = await session.get(Announcement, ad_id)
-    now = dt.datetime.now(validators.MINSK_TZ)
+    now = dt.datetime.now(local.tz)
     if now > ad.datetime + timedelta(hours=1):
         return await cb.answer(
             "⏳ Тренировка прошла более часа назад — редактирование невозможно.",
@@ -276,3 +276,16 @@ async def edit_paid(msg: Message, state: FSMContext):
     if text not in {"да", "нет"}:
         return await msg.reply("Напишите «да» или «нет».")
     await _apply_edit(msg, state, is_paid=(text == "да"))
+
+
+# ───────────── удалить объявление (новый обработчик) ─────────────
+@router.callback_query(F.data.startswith("delete_ad_"))
+async def delete_ad(cb: CallbackQuery):
+    ann_id = int(cb.data.split("_")[-1])
+    async with SessionLocal() as session:
+        ann = await session.get(Announcement, ann_id)
+        now = dt.datetime.now(local.tz)
+        if ann.datetime < now:
+            await cb.message.answer("Нельзя удалять прошедшие тренировки!")
+            return
+        # ...удаление...
