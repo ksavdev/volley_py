@@ -33,8 +33,6 @@ async def main() -> None:
         BotCommand(command="my", description="Мои объявления"),
         BotCommand(command="search", description="Найти тренировку"),
         BotCommand(command="requests", description="Мои заявки"),
-        BotCommand(command="addhall", description="Добавить зал"),
-        BotCommand(command="dm", description="Писать пользователю"),
     ])
 
     # Настраиваем диспетчер с хранилищем состояний в памяти
