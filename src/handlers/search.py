@@ -1,3 +1,5 @@
+# src/handlers/search.py
+
 import datetime as dt
 
 from aiogram import Router, F
@@ -61,50 +63,73 @@ async def choose_type(cb: CallbackQuery):
 
 @router.callback_query(F.data == "search_menu")
 async def back_to_search_menu(cb: CallbackQuery):
-    """Назад на выбор типа."""
+    """Назад – на выбор платных/бесплатных."""
     await cb.message.edit_text("Выберите тип тренировки:", reply_markup=search_menu_kb())
     await cb.answer()
 
 
 @router.callback_query(F.data.startswith("ad_"))
 async def ad_chosen(cb: CallbackQuery, state: FSMContext):
-    """Шаг 3: подробная карточка + кнопки «Записаться»/«Назад»."""
+    """
+    Шаг 3: подробности объявления + кнопки «Записаться»/«Назад».
+    Отображаем зал, адрес, дату, слоты и список уже принятых игроков.
+    """
     ad_id = int(cb.data.split("_", 1)[1])
     now   = dt.datetime.now(MINSK_TZ)
 
-    # Подгружаем объявление + hall + signups->player
+    # — загружаем объявление с hall и signups->player
     async with SessionLocal() as session:
         result = await session.execute(
             select(Announcement)
             .options(
                 selectinload(Announcement.hall),
-                selectinload(Announcement.signups).selectinload(Signup.player),
+                selectinload(Announcement.signups)
+                    .selectinload(Signup.player),
             )
             .where(Announcement.id == ad_id)
         )
         ad = result.scalar_one_or_none()
 
-    if not ad:
-        return await cb.answer("Объявление не найдено.", show_alert=True)
+        if not ad:
+            return await cb.answer("Объявление не найдено.", show_alert=True)
+
+        # моментальная проверка на уже существующую у пользователя заявку
+        exists = await session.scalar(
+            select(Signup.id).where(
+                Signup.announcement_id == ad_id,
+                Signup.player_id       == cb.from_user.id,
+                Signup.status.in_([SignupStatus.pending, SignupStatus.accepted])
+            )
+        )
+
+    if exists:
+        return await cb.answer(
+            "У вас уже есть активная заявка на эту тренировку.",
+            show_alert=True
+        )
 
     if ad.datetime <= now:
         return await cb.answer("К сожалению, эта тренировка уже прошла.", show_alert=True)
 
-    # Считаем слоты и собираем список принятых
+    # — считаем слоты и готовим блок игроков
     accepted    = [s for s in ad.signups if s.status == SignupStatus.accepted]
     total_slots = ad.players_need
     taken_slots = len(accepted)
 
     if accepted:
         players_list = "\n".join(
-            f"- {s.player.first_name or '—'} ({s.role})"
+            f"- {s.player.first_name or s.player.username or s.player_id} ({s.role})"
             for s in accepted
         )
-        players_block = f"👥 <b>Игроки ({taken_slots}/{total_slots}):</b>\n{players_list}\n\n"
+        players_block = (
+            f"👥 <b>Игроки ({taken_slots}/{total_slots}):</b>\n"
+            f"{players_list}\n\n"
+        )
     else:
         players_block = f"👥 <b>Игроки ({taken_slots}/{total_slots}):</b> нет\n\n"
 
-    when = local(ad.datetime).strftime("%d.%m.%Y %H:%M")
+    # — остальные данные
+    when         = local(ad.datetime).strftime("%d.%m.%Y %H:%M")
     hall_name    = ad.hall.name if ad.hall else "—"
     hall_address = getattr(ad.hall, "address", "—")
 
@@ -116,7 +141,10 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
         "✍️ Нажмите «Записаться», затем отправьте свою роль."
     )
 
-    await cb.message.edit_text(text, reply_markup=signup_kb(ad_id, ad.is_paid))
+    await cb.message.edit_text(
+        text,
+        reply_markup=signup_kb(ad_id, ad.is_paid)
+    )
     await cb.answer()
 
 
@@ -132,13 +160,16 @@ async def signup_clicked(cb: CallbackQuery, state: FSMContext):
 
 @router.message(SignupStates.waiting_for_role)
 async def got_role(msg: Message, state: FSMContext):
-    """Шаг 5: сохраняем заявку и уведомляем автора, но только если нет дублей."""
+    """
+    Шаг 5: сохраняем заявку и уведомляем автора.
+    Повторная проверка на дубликаты.
+    """
     role = msg.text.strip() or "-"
     data = await state.get_data()
     ad_id = data["ad_id"]
 
     async with SessionLocal() as session:
-        # Проверяем, нет ли уже pending/accepted
+        # финальная проверка: нет ли уже pending/accepted
         exists = await session.scalar(
             select(Signup.id).where(
                 Signup.announcement_id == ad_id,
@@ -147,12 +178,11 @@ async def got_role(msg: Message, state: FSMContext):
             )
         )
         if exists:
-            # Убираем состояние, сообщаем и выходим
             await msg.answer("У вас уже есть активная заявка на эту тренировку.")
             await state.clear()
             return
 
-        # Если раньше была declined — переиспользуем
+        # переиспользуем declined, если есть
         signup = await session.scalar(
             select(Signup).where(
                 Signup.announcement_id == ad_id,
@@ -173,13 +203,12 @@ async def got_role(msg: Message, state: FSMContext):
 
         await session.commit()
         await session.refresh(signup)
-
-        # подгружаем для уведомления автора
         ad = await session.get(
-            Announcement, ad_id, options=[selectinload(Announcement.hall)]
+            Announcement, ad_id,
+            options=[selectinload(Announcement.hall)]
         )
 
-    # Уведомляем автора
+    # уведомляем автора
     await notify_author(msg.bot, ad, msg.from_user, role, signup.id)
 
     await msg.answer("✅ Запрос отправлен. Ожидайте подтверждения.")
