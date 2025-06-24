@@ -19,9 +19,9 @@ from .base import Base
 
 
 class SignupStatus(str, Enum):
-    pending   = "pending"
-    accepted  = "accepted"
-    declined  = "declined"
+    pending   = "На рассмотрении"
+    accepted  = "Принята"
+    declined  = "Отклонена"
 
 
 class Signup(Base):

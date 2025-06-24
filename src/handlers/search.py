@@ -33,7 +33,7 @@ async def cmd_search(msg: Message):
 async def choose_type(cb: CallbackQuery):
     """Шаг 2: список будущих объявлений."""
     is_paid = (cb.data == "search_paid")
-    now     = dt.datetime.now(MINSK_TZ)
+    now = dt.datetime.now(MINSK_TZ)
 
     async with SessionLocal() as session:
         ads = (
@@ -44,8 +44,8 @@ async def choose_type(cb: CallbackQuery):
                     selectinload(Announcement.signups),
                 )
                 .where(
-                    Announcement.is_paid   == is_paid,
-                    Announcement.datetime  > now,
+                    Announcement.is_paid == is_paid,
+                    Announcement.datetime > now,
                 )
                 .order_by(Announcement.datetime)
             )
@@ -72,12 +72,12 @@ async def back_to_search_menu(cb: CallbackQuery):
 async def ad_chosen(cb: CallbackQuery, state: FSMContext):
     """
     Шаг 3: подробности объявления + кнопки «Записаться»/«Назад».
-    Отображаем зал, адрес, дату, слоты и список уже принятых игроков.
+    Отображаем зал, адрес, дату, слоты и список уже ПРИНЯТЫХ игроков.
     """
     ad_id = int(cb.data.split("_", 1)[1])
-    now   = dt.datetime.now(MINSK_TZ)
+    now = dt.datetime.now(MINSK_TZ)
 
-    # — загружаем объявление с hall и signups->player
+    # — загрузка объявления с hall и signups->player
     async with SessionLocal() as session:
         result = await session.execute(
             select(Announcement)
@@ -93,11 +93,11 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
         if not ad:
             return await cb.answer("Объявление не найдено.", show_alert=True)
 
-        # моментальная проверка на уже существующую у пользователя заявку
+        # Проверяем, есть ли у пользователя уже активная заявка
         exists = await session.scalar(
             select(Signup.id).where(
                 Signup.announcement_id == ad_id,
-                Signup.player_id       == cb.from_user.id,
+                Signup.player_id == cb.from_user.id,
                 Signup.status.in_([SignupStatus.pending, SignupStatus.accepted])
             )
         )
@@ -111,26 +111,32 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
     if ad.datetime <= now:
         return await cb.answer("К сожалению, эта тренировка уже прошла.", show_alert=True)
 
-    # — считаем слоты и готовим блок игроков
-    accepted    = [s for s in ad.signups if s.status == SignupStatus.accepted]
+    # — считаем слоты и готовим блок принятых игроков
+    accepted = [s for s in ad.signups if s.status == SignupStatus.accepted]
     total_slots = ad.players_need
     taken_slots = len(accepted)
+    slots_info = f"{taken_slots}/{total_slots}"
 
-    if accepted:
+    if taken_slots >= total_slots:
+        # все слоты заняты
+        players_block = f"👥 <b>Игроки ({slots_info}):</b> слоты заполнены\n\n"
+    elif taken_slots == 0:
+        # пока нет принятых
+        players_block = f"👥 <b>Игроки ({slots_info}):</b> нет\n\n"
+    else:
+        # выводим список принятых
         players_list = "\n".join(
             f"- {s.player.first_name or s.player.username or s.player_id} ({s.role})"
             for s in accepted
         )
         players_block = (
-            f"👥 <b>Игроки ({taken_slots}/{total_slots}):</b>\n"
+            f"👥 <b>Игроки ({slots_info}):</b>\n"
             f"{players_list}\n\n"
         )
-    else:
-        players_block = f"👥 <b>Игроки ({taken_slots}/{total_slots}):</b> нет\n\n"
 
-    # — остальные данные
-    when         = local(ad.datetime).strftime("%d.%m.%Y %H:%M")
-    hall_name    = ad.hall.name if ad.hall else "—"
+    # — остальная информация по залу и времени
+    when = local(ad.datetime).strftime("%d.%m.%Y %H:%M")
+    hall_name = ad.hall.name if ad.hall else "—"
     hall_address = getattr(ad.hall, "address", "—")
 
     text = (
@@ -141,10 +147,13 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
         "✍️ Нажмите «Записаться», затем отправьте свою роль."
     )
 
-    await cb.message.edit_text(
-        text,
-        reply_markup=signup_kb(ad_id, ad.is_paid)
-    )
+    # Если все слоты заняты — только кнопка «Назад к списку»
+    if taken_slots >= total_slots:
+        from src.keyboards.search_menu import back_to_list_kb
+        await cb.message.edit_text(text, reply_markup=back_to_list_kb())
+    else:
+        await cb.message.edit_text(text, reply_markup=signup_kb(ad_id, ad.is_paid))
+
     await cb.answer()
 
 
@@ -162,18 +171,17 @@ async def signup_clicked(cb: CallbackQuery, state: FSMContext):
 async def got_role(msg: Message, state: FSMContext):
     """
     Шаг 5: сохраняем заявку и уведомляем автора.
-    Повторная проверка на дубликаты.
     """
     role = msg.text.strip() or "-"
     data = await state.get_data()
     ad_id = data["ad_id"]
 
     async with SessionLocal() as session:
-        # финальная проверка: нет ли уже pending/accepted
+        # финальная проверка на дубликаты
         exists = await session.scalar(
             select(Signup.id).where(
                 Signup.announcement_id == ad_id,
-                Signup.player_id       == msg.from_user.id,
+                Signup.player_id == msg.from_user.id,
                 Signup.status.in_([SignupStatus.pending, SignupStatus.accepted])
             )
         )
@@ -182,22 +190,22 @@ async def got_role(msg: Message, state: FSMContext):
             await state.clear()
             return
 
-        # переиспользуем declined, если есть
+        # переиспользуем declined, если был
         signup = await session.scalar(
             select(Signup).where(
                 Signup.announcement_id == ad_id,
-                Signup.player_id       == msg.from_user.id,
-                Signup.status          == SignupStatus.declined
+                Signup.player_id == msg.from_user.id,
+                Signup.status == SignupStatus.declined
             )
         )
         if signup:
             signup.status = SignupStatus.pending
-            signup.role   = role
+            signup.role = role
         else:
             signup = Signup(
                 announcement_id=ad_id,
-                player_id      = msg.from_user.id,
-                role           = role
+                player_id=msg.from_user.id,
+                role=role
             )
             session.add(signup)
 
