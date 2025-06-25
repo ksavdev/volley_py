@@ -40,6 +40,9 @@ def validate_future_date(date_: dt.date):
         raise ValueError("Нельзя указывать прошедшую дату")
 
 def future_datetime(date_: dt.date, time_: dt.time):
+    # Если время без tzinfo — добавить MINSK_TZ
+    if time_.tzinfo is None:
+        time_ = time_.replace(tzinfo=MINSK_TZ)
     dt_full = dt.datetime.combine(date_, time_)
     if dt_full <= dt.datetime.now(MINSK_TZ):
         raise ValueError("Нельзя указывать прошедшую дату/время")

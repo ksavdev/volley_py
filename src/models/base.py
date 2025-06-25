@@ -5,8 +5,7 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-from src.config import settings
-DATABASE_URL = settings.database_url
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import registry, DeclarativeBase
@@ -28,4 +27,5 @@ SessionLocal: async_sessionmaker[AsyncSession] = async_sessionmaker(
 mapper_registry = registry()
 
 class Base(DeclarativeBase):
+    registry = mapper_registry
     registry = mapper_registry

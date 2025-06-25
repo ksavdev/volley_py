@@ -3,7 +3,10 @@ from typing import Sequence
 from src.models.hall import Hall
 
 
-def halls_keyboard(halls: Sequence[Hall]) -> InlineKeyboardMarkup:
+def halls_keyboard(halls: Sequence[Hall], page=0, per_page=20) -> InlineKeyboardMarkup:
+    start = page * per_page
+    end = start + per_page
+    page_halls = halls[start:end]
     rows = [
         [
             InlineKeyboardButton(
@@ -11,17 +14,27 @@ def halls_keyboard(halls: Sequence[Hall]) -> InlineKeyboardMarkup:
                 callback_data=f"hall_{h.id}"
             )
         ]
-        for h in halls
+        for h in page_halls
     ]
 
-    # ↓ здесь тоже только именованные параметры!
-    rows.append(
-        [
+    # Пагинация
+    nav = []
+    if page > 0:
+        nav.append(
             InlineKeyboardButton(
-                text="➕ Нет нужного зала?",
-                callback_data="hall_request_admin"
+                text="« Назад",
+                callback_data=f"halls_page_{page-1}"
             )
-        ]
-    )
+        )
+    if end < len(halls):
+        nav.append(
+            InlineKeyboardButton(
+                text="Далее »",
+                callback_data=f"halls_page_{page+1}"
+            )
+        )
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="Нет нужного зала", callback_data="hall_request_admin")])
 
     return InlineKeyboardMarkup(inline_keyboard=rows)

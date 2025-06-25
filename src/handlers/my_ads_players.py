@@ -13,75 +13,85 @@ from src.models.announcement import Announcement
 from src.handlers.announce import render_announcement
 from src.utils.helpers import local
 from src.keyboards.announce_manage import announcement_manage_keyboard
+from src.handlers.start import whitelist_required
 
 router = Router(name="players")
 
 
 @router.callback_query(F.data.startswith("players_"))
+@whitelist_required
 async def show_players(cb: CallbackQuery):
-    """
-    Показываем список принятых игроков:
-    callback.data == "players_{announcement_id}"
-    """
-    _, a_id = cb.data.split("_", 1)
-    ann_id = int(a_id)
+    ann_id = int(cb.data.split("_")[1])
 
     async with SessionLocal() as session:
-        result = await session.execute(
-            select(Announcement)
-            .options(
+        ann = await session.get(
+            Announcement,
+            ann_id,
+            options=[
                 selectinload(Announcement.hall),
-                selectinload(Announcement.signups)
-                    .selectinload(Signup.player),
-            )
-            .where(Announcement.id == ann_id)
+                selectinload(Announcement.signups).selectinload(Signup.player),
+            ],
         )
-        ann = result.scalar_one_or_none()
 
     if not ann:
-        return await cb.answer("Объявление не найдено.", show_alert=True)
+        await cb.answer("Объявление не найдено.", show_alert=True)
+        return
 
-    # Собираем кортежи (player_id, имя, роль, рейтинг)
     players: list[tuple[int, str, str, float]] = []
+    declined_players: list[tuple[int, str, str, float]] = []
     for su in ann.signups:
-        if su.status != SignupStatus.accepted:
-            continue
         role = su.role or "-"
         if su.player:
-            name = su.player.first_name or su.player.username or str(su.player_id)
+            name = su.player.fio or su.player.first_name or su.player.username or str(su.player_id)
             rating = float(su.player.rating or 0)
         else:
             name, rating = str(su.player_id), 0.0
-        players.append((su.player_id, name, role, rating))
+        if su.status == SignupStatus.accepted:
+            players.append((su.player_id, name, role, rating))
+        elif su.status == SignupStatus.declined:
+            declined_players.append((su.player_id, name, role, rating))
 
     when = local(ann.datetime).strftime("%d.%m %H:%M")
     header = f"🏐 Игроки ({ann.hall.name} • {when}):\n\n"
-    body = (
-        "Нет принятых игроков."
-        if not players
-        else "\n".join(f"{n} ({r}) ⭐{rt:.2f}" for _, n, r, rt in players)
-    )
 
-    # Кнопки удаления по одному
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
+    body_lines = []
+    kb_rows = []
+
+    # Принятые игроки
+    if players:
+        body_lines.append("✅ <b>Принятые</b>")
+        for pid, n, r, rt in players:
+            body_lines.append(f"{n} ({r}) ⭐{rt:.2f}")
+            kb_rows.append([
                 InlineKeyboardButton(
-                    text=f"❌ Удалить {name}",
+                    text=f"❌ Удалить {n}",
                     callback_data=f"confirm_remove_{ann.id}_{pid}"
                 )
-            ]
-            for pid, name, *_ in players
-        ] + [
-            [InlineKeyboardButton(text="« Назад", callback_data=f"back:{ann.id}")]
-        ]
-    )
+            ])
+    else:
+        body_lines.append("Нет принятых игроков.")
 
-    await cb.message.edit_text(header + body, reply_markup=kb)
+    # Отклонённые игроки
+    if declined_players:
+        body_lines.append("\n🚫 <b>Отклонённые</b>")
+        for pid, n, r, rt in declined_players:
+            body_lines.append(f"{n} ({r}) ⭐{rt:.2f}")
+            kb_rows.append([
+                InlineKeyboardButton(
+                    text=f"🔓 Разблокировать {n}",
+                    callback_data=f"unblock_{ann.id}_{pid}"
+                )
+            ])
+
+    kb_rows.append([InlineKeyboardButton(text="« Назад", callback_data=f"back:{ann.id}")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+    await cb.message.edit_text(header + "\n".join(body_lines), reply_markup=kb)
     await cb.answer()
 
 
 @router.callback_query(F.data.startswith("confirm_remove_"))
+@whitelist_required
 async def confirm_remove(cb: CallbackQuery):
     """
     Спрашиваем «Точно удалить?» перед удалением.
@@ -109,7 +119,7 @@ async def confirm_remove(cb: CallbackQuery):
 
     role = signup.role or "-"
     if signup.player:
-        name = signup.player.first_name or signup.player.username or str(player_id)
+        name = signup.player.fio or signup.player.first_name or signup.player.username or str(player_id)
     else:
         name = str(player_id)
 
@@ -131,6 +141,7 @@ async def confirm_remove(cb: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("do_remove_"))
+@whitelist_required
 async def do_remove(cb: CallbackQuery):
     """
     Удаляем заявку после подтверждения.
@@ -159,6 +170,7 @@ async def do_remove(cb: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("back:"))
+@whitelist_required
 async def back_to_announcement(cb: CallbackQuery):
     """
     Возвращаемся к карточке объявления.
@@ -182,3 +194,33 @@ async def back_to_announcement(cb: CallbackQuery):
     kb = announcement_manage_keyboard(ann)
     await cb.message.edit_text(text, reply_markup=kb)
     await cb.answer()
+
+
+@router.callback_query(F.data.startswith("unblock_"))
+@whitelist_required
+async def unblock_declined(cb: CallbackQuery):
+    """
+    Снимает статус "отклонено" с заявки, чтобы игрок мог снова подать заявку.
+    """
+    _, ann_id, player_id = cb.data.split("_")
+    ann_id = int(ann_id)
+    player_id = int(player_id)
+
+    async with SessionLocal() as session:
+        signup = await session.scalar(
+            select(Signup).where(
+                Signup.announcement_id == ann_id,
+                Signup.player_id == player_id,
+                Signup.status == SignupStatus.declined,
+            )
+        )
+        if not signup:
+            await cb.answer("Заявка не найдена или уже не отклонена.", show_alert=True)
+            return
+        # Можно либо удалить заявку, либо сменить статус на pending (или удалить)
+        await session.delete(signup)
+        await session.commit()
+
+    await cb.answer("Игрок теперь может снова подать заявку.")
+    # Обновить список игроков
+    await show_players(cb)

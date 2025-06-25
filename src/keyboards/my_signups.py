@@ -25,8 +25,6 @@ def list_kb(signups: Sequence[Signup]) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Нет заявок", callback_data="noop")]
         )
 
-    # Назад в главное меню
-    rows.append([InlineKeyboardButton(text="« Назад", callback_data="requests_back")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

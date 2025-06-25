@@ -1,10 +1,1 @@
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
-yes_no_kb = InlineKeyboardMarkup(
-    inline_keyboard=[
-        [
-            InlineKeyboardButton(text="✅ Да", callback_data="yes"),
-            InlineKeyboardButton(text="❌ Не", callback_data="no"),
-        ]
-    ]
-)
+from .common_kb import yes_no_kb, YesNoCallback

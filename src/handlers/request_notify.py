@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.models import SessionLocal
 from src.models.user import User
 from src.models.announcement import Announcement
-from src.keyboards.confirm_yes_no import confirm_kb
+from src.keyboards.common_kb import confirm_kb
 from src.utils.helpers import local
 
 async def notify_author(
@@ -24,11 +24,12 @@ async def notify_author(
     async with SessionLocal() as session:
         db_user = await session.get(User, player.id)
         rating = f"{db_user.rating:.2f}" if db_user else "—"
+        fio = db_user.fio if db_user and db_user.fio else player.first_name
 
     text = (
         f"📥 <b>Новая заявка</b>\n\n"
         f"{ad.hall.name} • {local(ad.datetime).strftime('%d.%m %H:%M')}\n"
-        f"Игрок: <a href='tg://user?id={player.id}'>{player.first_name}</a> "
+        f"Игрок: <a href='tg://user?id={player.id}'>{fio}</a> "
         f"(⭐ {rating})\n"
         f"Роль: {role}\n\n"
         "Принять или отклонить?"

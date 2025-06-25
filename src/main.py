@@ -11,6 +11,7 @@ from src.handlers.rating import send_rating_requests
 
 # Импортируем Base и engine для автоматического создания таблиц
 from src.models.base import Base, engine
+import traceback
 
 
 async def on_startup(bot: Bot):
@@ -22,7 +23,11 @@ async def on_startup(bot: Bot):
 
 
 async def periodic_ratings(bot):
-    await send_rating_requests(bot)
+    try:
+        await send_rating_requests(bot)
+    except Exception as e:
+        print("Exception in periodic_ratings job:")
+        traceback.print_exc()
 
 
 async def main() -> None:
@@ -52,7 +57,14 @@ async def main() -> None:
     dp.startup.register(on_startup)
 
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(periodic_ratings, "interval", minutes=5, args=[bot])
+    scheduler.add_job(
+        periodic_ratings,
+        "interval",
+        minutes=5,
+        args=[bot],
+        max_instances=1,
+        misfire_grace_time=60,
+    )
     scheduler.start()
 
     try:
@@ -60,6 +72,7 @@ async def main() -> None:
         await dp.start_polling(bot)
     finally:
         scheduler.shutdown()
+        await engine.dispose()  # Грейсфул shutdown
         # При завершении закрываем сессию бота
         await bot.session.close()
 

@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 from src.models import SessionLocal
 from src.models.announcement import Announcement
 from src.models.signup import Signup, SignupStatus
-from src.states.edit_states import EditStates
+from src.states.announce_states import AdStates
 from src.keyboards.manage_players import players_kb
 from src.keyboards.announce_manage import (
     manage_keyboard,
@@ -23,6 +23,7 @@ from src.keyboards.announce_manage import (
     choose_field_keyboard,
 )
 from src.utils.helpers import local, MINSK_TZ
+from src.handlers.start import whitelist_required
 
 router: Final = Router(name="my_ads")           # (было my_ads_players → логичнее my_ads)
 
@@ -49,6 +50,7 @@ async def _render_players(message: Message, ad: Announcement) -> None:
 #                             /my  (список объявлений)                        #
 # --------------------------------------------------------------------------- #
 @router.message(Command("my"))
+@whitelist_required
 async def cmd_my_ads(message: Message):
     author_id = message.from_user.id
     async with SessionLocal() as session:
@@ -71,6 +73,7 @@ async def cmd_my_ads(message: Message):
 #                        выбор конкретного объявления                         #
 # --------------------------------------------------------------------------- #
 @router.callback_query(lambda cb: re.fullmatch(r"myad_\d+", cb.data))
+@whitelist_required
 async def handle_myad_details(cb: CallbackQuery):
     ad_id = int(cb.data.split("_")[1])
     async with SessionLocal() as session:
@@ -87,7 +90,7 @@ async def handle_myad_details(cb: CallbackQuery):
         f"<b>ID:</b> {ad.id}\n"
         f"<b>Зал:</b> {ad.hall.name}\n"
         f"<b>Дата/время:</b> {local(ad.datetime).strftime('%d.%m.%Y %H:%M')}\n"
-        f"<b>Нужно игроков:</b> {ad.players_need}\n"
+        f"<b>Нужно игроков:</b> {ad.capacity}\n"  # ← было ad.players_need
         f"<b>Роли:</b> {ad.roles}\n"
         f"<b>Мячи:</b> {'нужны' if ad.balls_need else 'не нужны'}\n"
         f"<b>Ограничения:</b> {ad.restrictions}\n"
@@ -101,6 +104,7 @@ async def handle_myad_details(cb: CallbackQuery):
 #                                «Назад» / список                             #
 # --------------------------------------------------------------------------- #
 @router.callback_query(F.data == "back")
+@whitelist_required
 async def handle_back_to_ads(cb: CallbackQuery):
     author_id = cb.from_user.id
     async with SessionLocal() as session:
@@ -124,6 +128,7 @@ async def handle_back_to_ads(cb: CallbackQuery):
 #                              УДАЛЕНИЕ ОБЪЯВЛЕНИЯ                            #
 # --------------------------------------------------------------------------- #
 @router.callback_query(lambda cb: re.fullmatch(r"myad_del_\d+", cb.data))
+@whitelist_required
 async def handle_delete_ad(cb: CallbackQuery):
     ad_id = int(cb.data.split("_")[2])
     async with SessionLocal() as session:
@@ -146,6 +151,7 @@ async def handle_delete_ad(cb: CallbackQuery):
 #                          РЕЖИМ «Изменить объявление»                        #
 # --------------------------------------------------------------------------- #
 @router.callback_query(F.data.startswith("myad_edit_"))
+@whitelist_required
 async def handle_edit_ad(cb: CallbackQuery, state: FSMContext):
     """
     Кнопка «✏️ Изменить» — показываем меню выбора поля.
@@ -155,16 +161,14 @@ async def handle_edit_ad(cb: CallbackQuery, state: FSMContext):
     await cb.message.edit_text(
         "Что изменить?", reply_markup=choose_field_keyboard(ad_id)
     )
-    await state.set_state(EditStates.choosing_field)
+    await state.set_state(AdStates.choosing_field)
     await cb.answer()
 
 
 # -------------   выбор конкретного поля для редактирования  --------------- #
 @router.callback_query(lambda cb: re.fullmatch(r"edit_field_[a-z_]+_\d+", cb.data))
+@whitelist_required
 async def handle_choose_field(cb: CallbackQuery, state: FSMContext):
-    """
-    Пользователь нажал кнопку «📅 Дата», «⏰ Время» и т.д.
-    """
     _, _, field, ad_id_str = cb.data.split("_", 3)
     ad_id = int(ad_id_str)
     await state.update_data(ad_id=ad_id, field=field)
@@ -184,8 +188,7 @@ async def handle_choose_field(cb: CallbackQuery, state: FSMContext):
     if field not in prompts:
         return await cb.answer("Пока не реализовано.", show_alert=True)
 
-    # переводим FSM в конкретное состояние
-    next_state = getattr(EditStates, f"editing_{field}", None)
+    next_state = getattr(AdStates, f"editing_{field}", None)
     if next_state is None:
         return await cb.answer("Пока не реализовано.", show_alert=True)
 
@@ -198,28 +201,14 @@ async def handle_choose_field(cb: CallbackQuery, state: FSMContext):
 #                            «Игроки» (список / kick)                         #
 # --------------------------------------------------------------------------- #
 @router.callback_query(F.data.startswith("players_"))
+@whitelist_required
 async def handle_show_players(cb: CallbackQuery):
-    ad_id = int(cb.data.split("_")[1])
-
-    async with SessionLocal() as session:
-        ad: Announcement | None = await session.get(
-            Announcement,
-            ad_id,
-            options=[
-                selectinload(Announcement.hall),
-                selectinload(Announcement.signups).selectinload(Signup.player),
-            ],
-        )
-
-    if ad is None:
-        await cb.answer("Объявление не найдено.", show_alert=True)
-        return
-
-    await _render_players(cb.message, ad)
-    await cb.answer()
+    from src.handlers.my_ads_players import show_players
+    await show_players(cb)
 
 
 @router.callback_query(F.data.startswith("kick_"))
+@whitelist_required
 async def handle_kick_player(cb: CallbackQuery):
     ad_id, player_id = map(int, cb.data.split("_")[1:3])
 
@@ -255,7 +244,21 @@ async def handle_kick_player(cb: CallbackQuery):
 #                               «Отмена» редактирования                       #
 # --------------------------------------------------------------------------- #
 @router.callback_query(F.data == "edit_cancel")
+@whitelist_required
 async def handle_edit_cancel(cb: CallbackQuery, state: FSMContext):
     await cb.message.edit_text("❌ Редактирование отменено.")
     await state.clear()
+    await cb.answer()
+    await cb.answer()
+
+
+# --------------------------------------------------------------------------- #
+#                               «Отмена» редактирования                       #
+# --------------------------------------------------------------------------- #
+@router.callback_query(F.data == "edit_cancel")
+@whitelist_required
+async def handle_edit_cancel(cb: CallbackQuery, state: FSMContext):
+    await cb.message.edit_text("❌ Редактирование отменено.")
+    await state.clear()
+    await cb.answer()
     await cb.answer()

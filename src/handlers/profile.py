@@ -10,12 +10,26 @@ from src.models.announcement import Announcement
 router = Router(name="profile")
 
 @router.message(Command("profile"))
-async def cmd_profile(msg: Message):
-    user_id = msg.from_user.id
+@router.callback_query(lambda c: c.data == "menu_profile")
+async def cmd_profile(event):
+    # event может быть Message или CallbackQuery
+    if isinstance(event, Message):
+        user_id = event.from_user.id
+        send = event.answer
+        full_name = event.from_user.full_name
+        username = event.from_user.username
+    else:
+        user_id = event.from_user.id
+        send = event.message.answer
+        full_name = event.from_user.full_name
+        username = event.from_user.username
+
     async with SessionLocal() as session:
         user = await session.get(User, user_id)
         if not user:
-            await msg.answer("Профиль не найден.")
+            await send("Профиль не найден.")
+            if hasattr(event, "answer"):
+                await event.answer()
             return
 
         # Всего заявок
@@ -44,17 +58,28 @@ async def cmd_profile(msg: Message):
         full_ads = await session.scalar(
             select(func.count()).select_from(Announcement).where(
                 Announcement.author_id == user_id,
-                Announcement.players_need == 0
+                # Например: тренировка прошла и заявок столько же, сколько capacity
+                Announcement.capacity == (
+                    select(func.count())
+                    .select_from(Signup)
+                    .where(
+                        Signup.announcement_id == Announcement.id,
+                        Signup.status == SignupStatus.accepted
+                    )
+                )
             )
         )
         # Количество оценок и рейтинг
         rating_votes = user.rating_votes
         rating = user.rating
 
+    fio = user.fio or full_name
+    phone = user.phone or "-"
     text = (
         f"👤 <b>Профиль</b>\n"
-        f"Имя: {msg.from_user.full_name}\n"
-        f"Username: @{msg.from_user.username or '-'}\n"
+        f"ФИО: {fio}\n"
+        f"Телефон: {phone}\n"
+        f"Username: @{username or '-'}\n"
         f"ID: <code>{user_id}</code>\n\n"
         f"⭐️ Рейтинг: <b>{rating:.2f}</b> ({rating_votes} оценок)\n"
         f"📝 Всего заявок: <b>{total_signups}</b>\n"
@@ -64,4 +89,6 @@ async def cmd_profile(msg: Message):
         f"🏆 Тренировок полностью заполнено: <b>{full_ads}</b>\n"
         f"🎯 Успешность: <b>{(accepted_signups/total_signups*100 if total_signups else 0):.0f}%</b>\n"
     )
-    await msg.answer(text)
+    await send(text)
+    if hasattr(event, "answer"):
+        await event.answer()

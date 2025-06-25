@@ -1,12 +1,14 @@
 # src/handlers/admin.py
 
-from aiogram import Router, F
+from aiogram import Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
-from src.config import ADMINS
+from src.config import ADMINS, set_zbt_enabled_db, is_zbt_enabled_db
 from src.states.admin_states import AdminDMStates, AdminStates
 from src.keyboards.back_cancel import back_cancel_kb
+from src.models.user import User
+from src.models import SessionLocal
 
 router = Router()
 
@@ -50,3 +52,57 @@ async def admin_broadcast_step(msg: Message, state: FSMContext):
         await msg.answer("Выберите действие администратора.", reply_markup=None)
         await state.set_state(AdminStates.waiting_for_action)
         return
+
+@router.message(Command("whitelist"))
+async def cmd_whitelist(msg: Message):
+    if msg.from_user.id not in ADMINS:
+        await msg.answer("Нет доступа.")
+        return
+    try:
+        user_id = int(msg.text.split(maxsplit=1)[1])
+    except Exception:
+        await msg.answer("Используйте: /whitelist <user_id>")
+        return
+    async with SessionLocal() as session:
+        user = await session.get(User, user_id)
+        if not user:
+            await msg.answer("Пользователь не найден.")
+            return
+        user.is_whitelisted = True
+        await session.commit()
+    await msg.answer(f"Пользователь {user_id} добавлен в whitelist.")
+
+@router.message(Command("unwhitelist"))
+async def cmd_unwhitelist(msg: Message):
+    if msg.from_user.id not in ADMINS:
+        await msg.answer("Нет доступа.")
+        return
+    try:
+        user_id = int(msg.text.split(maxsplit=1)[1])
+    except Exception:
+        await msg.answer("Используйте: /unwhitelist <user_id>")
+        return
+    async with SessionLocal() as session:
+        user = await session.get(User, user_id)
+        if not user:
+            await msg.answer("Пользователь не найден.")
+            return
+        user.is_whitelisted = False
+        await session.commit()
+    await msg.answer(f"Пользователь {user_id} удалён из whitelist.")
+
+@router.message(Command("zbt_on"))
+async def zbt_on(msg: Message):
+    if msg.from_user.id not in ADMINS:
+        await msg.answer("Нет доступа.")
+        return
+    await set_zbt_enabled_db(True)
+    await msg.answer("Режим ЗБТ включён. Доступ только по whitelist.")
+
+@router.message(Command("zbt_off"))
+async def zbt_off(msg: Message):
+    if msg.from_user.id not in ADMINS:
+        await msg.answer("Нет доступа.")
+        return
+    await set_zbt_enabled_db(False)
+    await msg.answer("Режим ЗБТ выключен. Доступ открыт для всех.")

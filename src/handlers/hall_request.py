@@ -1,9 +1,11 @@
-from aiogram import Router, F
+from aiogram import Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message, CallbackQuery
 from src.states.hall_request_states import HallRequestStates
 from src.config import ADMINS
 from src.keyboards.back_cancel import back_cancel_kb
+from src.models import User
+from src.models import SessionLocal
 
 router = Router(name="hall_request")
 
@@ -36,12 +38,15 @@ async def hall_address_step(msg: Message, state: FSMContext):
     hall_name = data["hall_name"]
     address = data["hall_address"]
     user = msg.from_user
+    async with SessionLocal() as session:
+        db_user = await session.get(User, user.id)
+        fio = db_user.fio if db_user and db_user.fio else user.full_name or user.username or user.id
 
     text = (
         "📨 <b>Заявка на добавление нового зала</b>\n\n"
         f"🏟 Название: <i>{hall_name}</i>\n"
         f"📌 Адрес: <i>{address}</i>\n\n"
-        f"👤 Пользователь: <a href='tg://user?id={user.id}'>{user.full_name or user.username or user.id}</a>\n"
+        f"👤 Пользователь: <a href='tg://user?id={user.id}'>{fio}</a>\n"
         f"🆔 ID: <code>{user.id}</code>\n"
         f"🔗 Username: @{user.username}" if user.username else ""
     )

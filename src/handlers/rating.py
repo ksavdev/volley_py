@@ -1,4 +1,4 @@
-from aiogram import Router, F
+from aiogram import Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 from src.states.rating_states import RatingStates
@@ -10,9 +10,24 @@ from sqlalchemy.orm import selectinload
 from src.models.announcement import Announcement
 from src.models.signup import Signup, SignupStatus
 from src.utils.helpers import local
+from src.utils.validators import MINSK_TZ
+try:
+    import redis.asyncio as aioredis
+    _redis_available = True
+except ModuleNotFoundError:
+    print(
+        "⚠️ Модуль 'redis' не установлен. "
+        "Функция напоминаний о рейтинге не будет работать.\n"
+        "Установите его командой: pip install redis>=4.2.0"
+    )
+    _redis_available = False
 import datetime as dt
+from aiogram.fsm.state import State, StatesGroup
 
 router = Router(name="rating")
+
+class MultiRatingStates(StatesGroup):
+    waiting_for_ratings = State()
 
 @router.message(RatingStates.waiting_for_rating)
 async def get_rating(msg: Message, state: FSMContext):
@@ -38,31 +53,101 @@ async def get_rating(msg: Message, state: FSMContext):
         if user:
             user.rating_sum += rating
             user.rating_votes += 1
-            user.rating = round(user.rating_sum / user.rating_votes, 2)
             await session.commit()
     await msg.answer("Спасибо за вашу оценку!")
     await state.clear()
 
+@router.message(MultiRatingStates.waiting_for_ratings)
+async def get_multi_rating(msg: Message, state: FSMContext):
+    data = await state.get_data()
+    ratings_list = data.get("ratings_list", [])
+    current_index = data.get("current_index", 0)
+    my_id = data.get("my_id")
+    if msg.text == "❌ Пропустить":
+        pass  # Просто пропускаем оценку
+    else:
+        try:
+            rating = int(msg.text.replace("⭐️", "").strip())
+            if not (1 <= rating <= 5):
+                raise ValueError
+        except Exception:
+            await msg.answer("Поставьте оценку от 1 до 5.", reply_markup=rating_kb())
+            return
+        rate_user_id = ratings_list[current_index]["user_id"]
+        async with SessionLocal() as session:
+            user = await session.get(User, rate_user_id)
+            if user:
+                user.rating_sum += rating
+                user.rating_votes += 1
+                await session.commit()
+    current_index += 1
+    if current_index >= len(ratings_list):
+        await msg.answer("Спасибо! Все оценки сохранены.")
+        await state.clear()
+        return
+    next_user = ratings_list[current_index]
+    await state.update_data(current_index=current_index)
+    await msg.answer(
+        f"Оцените игрока: <b>{next_user['name']}</b>",
+        reply_markup=rating_kb()
+    )
+
 async def send_rating_requests(bot):
-    now = dt.datetime.now(local.tz)
-    # Интервал для поиска: 2 часа назад ± 5 минут
-    target_time = now - dt.timedelta(hours=2)
-    interval_start = target_time - dt.timedelta(minutes=5)
-    interval_end = target_time + dt.timedelta(minutes=5)
-    async with SessionLocal() as session:
-        anns = (await session.scalars(
-            select(Announcement)
-            .where(
-                Announcement.datetime.between(interval_start, interval_end)
-            )
-            .options(selectinload(Announcement.signups))
-        )).all()
-        for ann in anns:
-            for signup in ann.signups:
-                if signup.status == SignupStatus.accepted:
+    if not _redis_available:
+        print("⚠️ Redis не доступен, пропускаем отправку напоминаний о рейтинге.")
+        return
+    try:
+        now = dt.datetime.now(MINSK_TZ)
+        # Интервал для поиска: 2 часа назад ± 5 минут
+        target_time = now - dt.timedelta(hours=2)
+        interval_start = target_time - dt.timedelta(minutes=5)
+        interval_end = target_time + dt.timedelta(minutes=5)
+
+        # Redis-кэш для предотвращения дублей
+        redis = await aioredis.from_url("redis://localhost")
+        async with SessionLocal() as session:
+            anns = (await session.scalars(
+                select(Announcement)
+                .where(
+                    Announcement.datetime.between(interval_start, interval_end)
+                )
+                .options(selectinload(Announcement.signups))
+            )).all()
+            for ann in anns:
+                redis_key = f"ratings_sent:{ann.id}"
+                already_sent = await redis.get(redis_key)
+                if already_sent:
+                    continue
+                # Собираем список игроков
+                players = [s.player for s in ann.signups if s.status == SignupStatus.accepted]
+                for player in players:
+                    # Список других игроков для оценки
+                    others = [
+                        {"user_id": p.id, "name": p.fio or f"{p.first_name} {p.last_name or ''}".strip()}
+                        for p in players if p.id != player.id
+                    ]
+                    if not others:
+                        continue
+                    state_data = {
+                        "ratings_list": others,
+                        "current_index": 0,
+                        "my_id": player.id,
+                    }
                     await bot.send_message(
-                        signup.player_id,
+                        player.id,
                         f"Тренировка {ann.hall.name} {local(ann.datetime).strftime('%d.%m %H:%M')} завершилась!\n\n"
-                        "Пожалуйста, оцените организатора.",
+                        "Пожалуйста, оцените других участников тренировки.",
                         reply_markup=rating_kb()
                     )
+                    # Устанавливаем FSM состояние для игрока
+                    from aiogram.fsm.storage.memory import MemoryStorage
+                    storage = bot.dispatcher.storage if hasattr(bot, "dispatcher") else MemoryStorage()
+                    await storage.set_data(bot=bot, chat_id=player.id, user_id=player.id, data=state_data)
+                    await storage.set_state(bot=bot, chat_id=player.id, user_id=player.id, state=MultiRatingStates.waiting_for_ratings)
+                # Установить флаг на 1 день
+                await redis.set(redis_key, "1", ex=86400)
+        await redis.close()
+    except Exception as e:
+        # Логировать ошибку, если нужно
+        print(f"send_rating_requests error: {e}")
+        print(f"send_rating_requests error: {e}")

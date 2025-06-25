@@ -15,7 +15,6 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, relationship
 
-from .announcement import Announcement
 from .base import Base
 from src.states.signup_states import SignupStates
 
@@ -46,10 +45,12 @@ class Signup(Base):
     )
     created_at:    Mapped[dt.datetime] = Column(
         DateTime(timezone=True),
-        default=dt.datetime.utcnow,
+        default=dt.datetime.now(dt.timezone.utc),
         nullable=False,
     )
 
     # ────── связи ──────────────────────────────────────────────────
     player:       Mapped["User"]         = relationship(back_populates="signups")
-    announcement: Mapped["Announcement"] = relationship(back_populates="signups")
+    announcement: Mapped["Announcement"] = relationship(
+        "Announcement", back_populates="signups"
+    )

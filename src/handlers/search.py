@@ -6,7 +6,7 @@ from src.utils.helpers import MINSK_TZ
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -20,17 +20,28 @@ from src.keyboards.signup_request import signup_kb
 from src.utils.validators import MINSK_TZ
 from src.utils.helpers import local
 from src.handlers.request_notify import notify_author
+from src.handlers.start import whitelist_required
 
 router = Router(name="search")
 
 
+def back_to_list_kb():
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="« Назад", callback_data="search_menu")]
+        ]
+    )
+
+
 @router.message(Command("search"))
+@whitelist_required
 async def cmd_search(msg: Message):
     """Шаг 1: выбор платных/бесплатных."""
     await msg.answer("Выберите тип тренировки:", reply_markup=search_menu_kb())
 
 
 @router.callback_query(F.data.in_({"search_paid", "search_free"}))
+@whitelist_required
 async def choose_type(cb: CallbackQuery):
     is_paid = (cb.data == "search_paid")
     now = dt.datetime.now(MINSK_TZ)
@@ -61,6 +72,7 @@ async def choose_type(cb: CallbackQuery):
 
 
 @router.callback_query(F.data == "search_menu")
+@whitelist_required
 async def back_to_search_menu(cb: CallbackQuery):
     """Назад – на выбор платных/бесплатных."""
     await cb.message.edit_text("Выберите тип тренировки:", reply_markup=search_menu_kb())
@@ -68,6 +80,7 @@ async def back_to_search_menu(cb: CallbackQuery):
 
 
 @router.callback_query(F.data.startswith("ad_"))
+@whitelist_required
 async def ad_chosen(cb: CallbackQuery, state: FSMContext):
     """
     Шаг 3: подробности объявления + кнопки «Записаться»/«Назад».
@@ -112,26 +125,24 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
 
     # — считаем слоты и готовим блок принятых игроков
     accepted = [s for s in ad.signups if s.status == SignupStatus.accepted]
-    total_slots = ad.players_need
+    total_slots = ad.capacity
     taken_slots = len(accepted)
     slots_info = f"{taken_slots}/{total_slots}"
 
     if taken_slots >= total_slots:
-        # все слоты заняты
         players_block = f"👥 <b>Игроки ({slots_info}):</b> слоты заполнены\n\n"
-    elif taken_slots == 0:
-        # пока нет принятых
-        players_block = f"👥 <b>Игроки ({slots_info}):</b> нет\n\n"
     else:
-        # выводим список принятых
-        players_list = "\n".join(
-            f"- {s.player.first_name or s.player.username or s.player_id} ({s.role})"
-            for s in accepted
-        )
-        players_block = (
-            f"👥 <b>Игроки ({slots_info}):</b>\n"
-            f"{players_list}\n\n"
-        )
+        if taken_slots == 0:
+            players_block = f"👥 <b>Игроки ({slots_info}):</b> нет\n\n"
+        else:
+            players_list = "\n".join(
+                f"- {s.player.fio or s.player.first_name or s.player.username or s.player_id} ({s.role})"
+                for s in accepted
+            )
+            players_block = (
+                f"👥 <b>Игроки ({slots_info}):</b>\n"
+                f"{players_list}\n\n"
+            )
 
     # — остальная информация по залу и времени
     when = local(ad.datetime).strftime("%d.%m.%Y %H:%M")
@@ -146,9 +157,8 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
         "✍️ Нажмите «Записаться», затем отправьте свою роль."
     )
 
-    # Если все слоты заняты — только кнопка «Назад к списку»
+    # --- исправленное условие ---
     if taken_slots >= total_slots:
-        from src.keyboards.search_menu import back_to_list_kb
         await cb.message.edit_text(text, reply_markup=back_to_list_kb())
     else:
         await cb.message.edit_text(text, reply_markup=signup_kb(ad_id, ad.is_paid))
@@ -157,6 +167,7 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data.startswith("signup_"))
+@whitelist_required
 async def signup_clicked(cb: CallbackQuery, state: FSMContext):
     """Шаг 4: ждём ввод роли."""
     ad_id = int(cb.data.split("_", 1)[1])
@@ -167,6 +178,7 @@ async def signup_clicked(cb: CallbackQuery, state: FSMContext):
 
 
 @router.message(SignupStates.waiting_for_role)
+@whitelist_required
 async def got_role(msg: Message, state: FSMContext):
     """
     Шаг 5: сохраняем заявку и уведомляем автора.
