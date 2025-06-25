@@ -54,7 +54,7 @@ def choose_field_keyboard(ad_id: int) -> InlineKeyboardMarkup:
     🏐 Мячи
     🚧 Ограничения
     💰 Платность
-    « Отмена
+    « Назад
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -65,7 +65,7 @@ def choose_field_keyboard(ad_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🏐 Мячи",             callback_data=f"edit_field_balls_{ad_id}")],
             [InlineKeyboardButton(text="🚧 Ограничения",      callback_data=f"edit_field_restrict_{ad_id}")],
             [InlineKeyboardButton(text="💰 Платность",        callback_data=f"edit_field_paid_{ad_id}")],
-            [InlineKeyboardButton(text="« Отмена",            callback_data="edit_cancel")],
+             [InlineKeyboardButton(text="« Назад",           callback_data=f"myad_{ad_id}")],
         ]
     )
 

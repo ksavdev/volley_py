@@ -74,16 +74,16 @@ async def cmd_my_ads(event):
 
     if not ads:
         # Для CallbackQuery используем answer, для Message — answer
-        if hasattr(event, "message"):
+        if isinstance(event, CallbackQuery):
             await event.message.answer("У вас пока нет объявлений.")
         else:
-            await event.answer("У вас пока нет объявлений.", show_alert=True)
+            await event.answer("У вас пока нет объявлений.")
         return
 
-    if hasattr(event, "message"):
+    if isinstance(event, CallbackQuery):
         await event.message.answer("Ваши объявления:", reply_markup=list_keyboard(ads))
     else:
-        await event.answer("Ваши объявления:", show_alert=True)
+        await event.answer("Ваши объявления:", reply_markup=list_keyboard(ads))
 
 
 # --------------------------------------------------------------------------- #
@@ -103,8 +103,11 @@ async def handle_myad_details(cb: CallbackQuery):
         await cb.answer("Объявление не найдено.", show_alert=True)
         return
 
-    now = dt.now(MINSK_TZ)
-    if ad.datetime <= now:
+    now = dt.now(MINSK_TZ).replace(tzinfo=None)
+    ad_dt = ad.datetime
+    if ad_dt.tzinfo is not None:
+        ad_dt = ad_dt.replace(tzinfo=None)
+    if ad_dt <= now:
         await cb.message.edit_text(
             "❌ Это объявление уже прошло и не может быть изменено или удалено.",
         )
@@ -163,8 +166,11 @@ async def handle_delete_ad(cb: CallbackQuery):
             await cb.answer("Уже удалено.", show_alert=True)
             return
 
-        now = dt.now(MINSK_TZ)
-        if ad.datetime <= now:
+        now = dt.now(MINSK_TZ).replace(tzinfo=None)
+        ad_dt = ad.datetime
+        if ad_dt.tzinfo is not None:
+            ad_dt = ad_dt.replace(tzinfo=None)
+        if ad_dt <= now:
             await cb.answer("Нельзя удалять прошедшие тренировки!", show_alert=True)
             return
 
@@ -189,11 +195,14 @@ async def handle_edit_ad(cb: CallbackQuery, state: FSMContext):
     ad_id = int(cb.data.split("_")[2])
     async with SessionLocal() as session:
         ad: Announcement | None = await session.get(Announcement, ad_id)
-        now = dt.now(MINSK_TZ)
+        now = dt.now(MINSK_TZ).replace(tzinfo=None)
         if not ad:
             await cb.answer("Объявление не найдено.", show_alert=True)
             return
-        if ad.datetime <= now:
+        ad_dt = ad.datetime
+        if ad_dt.tzinfo is not None:
+            ad_dt = ad_dt.replace(tzinfo=None)
+        if ad_dt <= now:
             await cb.answer("Нельзя изменять прошедшие тренировки!", show_alert=True)
             return
 

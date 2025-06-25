@@ -227,8 +227,12 @@ async def is_paid_answer(cb: CallbackQuery, callback_data: YesNoCallback, state:
 
 
 def render_announcement(ann: Announcement, hall_name: str = None) -> str:
+    # Приводим обе даты к naive для корректного сравнения
     now = dt.datetime.now(validators.MINSK_TZ).replace(tzinfo=None)
-    header = "❌ <b>Тренировка прошла</b>\n\n" if ann.datetime <= now else ""
+    ann_dt = ann.datetime
+    if ann_dt.tzinfo is not None:
+        ann_dt = ann_dt.replace(tzinfo=None)
+    header = "❌ <b>Тренировка прошла</b>\n\n" if ann_dt <= now else ""
     if hall_name is None:
         hall = getattr(ann, "hall", None)
         hall_name = hall.name if hall else "-"
@@ -238,7 +242,7 @@ def render_announcement(ann: Announcement, hall_name: str = None) -> str:
         f"ID: <code>{ann.id}</code>\n"
         f"Зал: {hall_name}\n"
         f"Дата/время: {ann.datetime.strftime('%d.%m.%Y %H:%M')}\n"
-        f"Нужно игроков: {ann.capacity}\n"  # ← было ann.players_need
+        f"Нужно игроков: {ann.capacity}\n"
         f"Роли: {ann.roles}\n"
         f"Мячи: {'нужны' if ann.balls_need else 'не нужны'}\n"
         f"Ограничения: {ann.restrictions}\n"

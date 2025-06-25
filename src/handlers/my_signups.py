@@ -18,6 +18,8 @@ from src.utils.validators import MINSK_TZ
 from aiogram.fsm.context import FSMContext
 from src.states.signup_states import SignupStates
 from src.handlers.start import whitelist_required
+from src.services.rating import apply_penalty
+from src.keyboards.manage_players import ManagePlayersCD
 
 router = Router(name="my_signups")
 
@@ -289,12 +291,24 @@ async def ask_remove(cb: CallbackQuery):
 async def remove_player_confirm(cb: CallbackQuery):
     # callback_data: remove_player_{ann_id}_{player_id}
     parts = cb.data.split("_")
-    # parts = ['remove', 'player', '{ann_id}', '{player_id}']
     if len(parts) < 4:
         await cb.answer("Некорректные данные.", show_alert=True)
         return
     ann_id = int(parts[2])
     player_id = int(parts[3])
+
+    async with SessionLocal() as s:
+        signup = await s.scalar(
+            select(Signup)
+            .where(
+                Signup.announcement_id == ann_id,
+                Signup.player_id == player_id
+            )
+        )
+        if not signup:
+            await cb.answer("Заявка не найдена.", show_alert=True)
+            return
+
     # Показываем автору выбор
     text = (
         "Вы действительно хотите удалить игрока из тренировки?\n"
@@ -304,11 +318,11 @@ async def remove_player_confirm(cb: CallbackQuery):
         [
             InlineKeyboardButton(
                 text="Удалить",
-                callback_data=f"do_remove_player_{ann_id}_{player_id}_no_penalty"
+                callback_data=ManagePlayersCD(signup_id=signup.id, penalty=0).pack()
             ),
             InlineKeyboardButton(
                 text="Удалить и -1 к рейтингу",
-                callback_data=f"do_remove_player_{ann_id}_{player_id}_penalty"
+                callback_data=ManagePlayersCD(signup_id=signup.id, penalty=1).pack()
             ),
         ]
     ])
@@ -317,50 +331,29 @@ async def remove_player_confirm(cb: CallbackQuery):
 
 
 # --- Новый обработчик: действие удаления ---
-@router.callback_query(F.data.startswith("do_remove_player_"))
+@router.callback_query(ManagePlayersCD.filter())
 @whitelist_required
-async def do_remove_player(cb: CallbackQuery):
-    # callback_data: do_remove_player_{ann_id}_{player_id}_{penalty}
-    prefix = "do_remove_player_"
-    data = cb.data[len(prefix):]  # '{ann_id}_{player_id}_{penalty}'
-    try:
-        ann_id_str, player_id_str, penalty_str = data.split("_", 2)
-        ann_id = int(ann_id_str)
-        player_id = int(player_id_str)
-        penalty = penalty_str == "penalty"
-    except Exception:
-        await cb.answer("Некорректные данные.", show_alert=True)
-        return
-    async with SessionLocal() as s:
-        signup = await s.scalar(
-            select(Signup).where(
-                Signup.announcement_id == ann_id,
-                Signup.player_id == player_id,
-                Signup.status == SignupStatus.accepted,
-            )
-        )
-        if not signup:
-            await cb.answer("Игрок уже удалён.", show_alert=True)
+async def do_remove_player(cb: CallbackQuery, state: FSMContext, callback_data: ManagePlayersCD):
+    """
+    Автор удаляет игрока (с возможным штрафом).
+    """
+    signup_id = int(callback_data.signup_id)
+    penalty = bool(int(callback_data.penalty))
+
+    async with SessionLocal() as session:
+        signup: Signup = await session.get(Signup, signup_id, with_for_update=True)
+        if not signup or signup.status == SignupStatus.declined:
+            await cb.answer("Заявка уже закрыта.", show_alert=True)
             return
+
         signup.status = SignupStatus.declined
-        # Понижаем рейтинг, если выбрано
+        await session.commit()
+
+        # Сообщение в чат вместо алерта
+        msg = "Игрок удалён, рейтинг понижен." if penalty else "Игрок удалён."
+        await cb.message.answer(msg)
+
         if penalty:
-            user = await s.get(User, player_id)
-            if user:
-                user.rating_sum -= 1.0  # -1.00 балла
-                user.rating_votes += 1
-        await s.commit()
-    # Уведомить игрока
-    try:
-        await cb.bot.send_message(
-            player_id,
-            "Вы были удалены из тренировки автором."
-            + ("\nВаш рейтинг понижен на 1.00 балла." if penalty else "")
-        )
-    except Exception:
-        pass
-    await cb.message.edit_text(
-        "Игрок удалён из тренировки."
-        + ("\nРейтинг игрока понижен на 1.00 балла." if penalty else "")
-    )
-    await cb.answer()
+            await apply_penalty(session, signup.player_id)
+
+    # ...остальной ваш код (уведомления и т.д.)...

@@ -1,31 +1,25 @@
+from aiogram.filters.callback_data import CallbackData
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from typing import Sequence
 
-def players_kb(
-    players: Sequence,  # теперь это объекты Signup с .player
-    announcement_id: int
-) -> InlineKeyboardMarkup:
+# signup_id  – ID строки Signup
+# penalty    – 0 (без штрафа) | 1 (со штрафом)
+class ManagePlayersCD(CallbackData, prefix="mpl"):
+    signup_id: int
+    penalty: int
+
+
+def players_kb(signup_id: int, *, penalty: bool = False):
     """
-    players: список объектов Signup (player_id, name, role, rating)
+    Кнопка удаления игрока (для автора объявления).
     """
-    rows: list[list[InlineKeyboardButton]] = []
-    for signup in players:
-        player = signup.player
-        name = player.fio or player.first_name or player.username or str(player.id)
-        role = signup.role or "-"
-        rating = float(player.rating or 0)
-        text = f"{name} ({role}) ⭐{rating:.2f}"
-        rows.append([
-            InlineKeyboardButton(
-                text=text,
-                callback_data=f"remove_{announcement_id}_{player.id}"
-            )
-        ])
-    # Явная кнопка «Назад»
-    rows.append([
-        InlineKeyboardButton(
-            text="Назад",
-            callback_data=f"back:{announcement_id}"
-        )
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🗑 Удалить" if not penalty else "⚠️ Удалить со штрафом",
+                    callback_data=ManagePlayersCD(signup_id=signup_id, penalty=int(penalty)).pack(),
+                )
+            ]
+        ]
+    )
+    

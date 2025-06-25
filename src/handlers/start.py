@@ -4,7 +4,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, BotCommand, InlineKeyboardMarkup
 from aiogram.types.inline_keyboard_button import InlineKeyboardButton
 from aiogram import Bot
-from src.config import ADMINS, is_zbt_enabled_db
+from src.config import ADMINS, is_zbt_enabled_db  # Импорт только здесь
 from src.models import SessionLocal
 from src.models.user import User
 from src.keyboards.main_menu import main_menu_kb
@@ -22,15 +22,12 @@ class RegistrationStates(StatesGroup):
 def whitelist_required(handler):
     @wraps(handler)
     async def wrapper(event, *args, **kwargs):
-        # Получаем user_id только из event.from_user (Message и CallbackQuery)
         uid = getattr(event, "from_user", None)
         if uid is None:
-            # safety-net: если нет from_user (например, системные события)
             return await handler(event, *args, **kwargs)
         user_id = uid.id
-        from src.config import ADMINS, is_zbt_enabled_db
         print(f"[whitelist_required] user_id={user_id}, ADMINS={ADMINS}")  # DEBUG
-        if user_id in ADMINS:
+        if int(user_id) in ADMINS:  # Явно приводим к int
             return await handler(event, *args, **kwargs)
         zbt_enabled = await is_zbt_enabled_db()
         if not zbt_enabled:
@@ -126,6 +123,7 @@ async def on_start(message: Message, state: FSMContext):
             BotCommand(command="my", description="Мои объявления"),
             BotCommand(command="search", description="Найти тренировку"),
             BotCommand(command="requests", description="Мои заявки"),
+            BotCommand(command="profile", description="Мой профиль"),
         ], scope={"type": "chat", "chat_id": message.from_user.id})
 
 @router.message(Command("start"))
@@ -183,8 +181,9 @@ async def menu_my_callback(cb: CallbackQuery):
 @router.callback_query(lambda c: c.data == "menu_search")
 @whitelist_required
 async def menu_search_callback(cb: CallbackQuery):
-    from src.handlers.search import cmd_search
-    await cmd_search(cb.message)
+    # Импортируем только бизнес-логику, не message-хендлер!
+    from src.handlers.search import search_menu_kb
+    await cb.message.answer("Выберите тип тренировки:", reply_markup=search_menu_kb())
     await cb.answer()
 
 @router.callback_query(lambda c: c.data == "menu_requests")
@@ -247,11 +246,7 @@ async def reg_phone(msg: Message, state: FSMContext):
 async def cmd_profile(msg: Message):
     from src.handlers.profile import cmd_profile
     await cmd_profile(msg)
-    await cmd_profile(msg)
-@whitelist_required
 async def cmd_profile(msg: Message):
     from src.handlers.profile import cmd_profile
     await cmd_profile(msg)
-    await cmd_profile(msg)
-    await cmd_profile(msg)
-    await cmd_profile(msg)
+    

@@ -103,13 +103,17 @@ async def send_rating_requests(bot):
         interval_start = target_time - dt.timedelta(minutes=5)
         interval_end = target_time + dt.timedelta(minutes=5)
 
+        # Быстрая защита от tz-конфликта
+        start = interval_start.replace(tzinfo=None)
+        end = interval_end.replace(tzinfo=None)
+
         # Redis-кэш для предотвращения дублей
         redis = await aioredis.from_url("redis://localhost")
         async with SessionLocal() as session:
             anns = (await session.scalars(
                 select(Announcement)
                 .where(
-                    Announcement.datetime.between(interval_start, interval_end)
+                    Announcement.datetime.between(start, end)
                 )
                 .options(selectinload(Announcement.signups))
             )).all()
@@ -135,7 +139,7 @@ async def send_rating_requests(bot):
                     }
                     await bot.send_message(
                         player.id,
-                        f"Тренировка {ann.hall.name} {local(ann.datetime).strftime('%d.%m %H:%M')} завершилась!\n\n"
+                        f"Тренировка {ann.hall.name} {ann.datetime.astimezone(MINSK_TZ).strftime('%d.%m %H:%M')} завершилась!\n\n"
                         "Пожалуйста, оцените других участников тренировки.",
                         reply_markup=rating_kb()
                     )
@@ -147,7 +151,7 @@ async def send_rating_requests(bot):
                     notified_players.append(player.id)
                 # Установить флаг на 1 день
                 await redis.set(redis_key, "1", ex=86400)
-                print(f"[RATING] Напоминание отправлено по объявлению {ann.id} ({ann.hall.name} {local(ann.datetime).strftime('%d.%m %H:%M')}) игрокам: {notified_players}")
+                print(f"[RATING] Напоминание отправлено по объявлению {ann.id} ({ann.hall.name} {ann.datetime.astimezone(MINSK_TZ).strftime('%d.%m %H:%M')}) игрокам: {notified_players}")
         await redis.close()
     except Exception as e:
         print(f"send_rating_requests error: {e}")
