@@ -165,51 +165,78 @@ async def got_restr(msg: Message, state: FSMContext):
     await state.set_state(AdStates.waiting_for_is_paid)
 
 
+@router.message(AdStates.waiting_for_is_paid)
+async def waiting_for_price(msg: Message, state: FSMContext):
+    # Этот хендлер нужен только для ручного перехода, если пользователь напишет текст вместо кнопки
+    await msg.answer("Пожалуйста, выберите вариант с помощью кнопок.", reply_markup=yes_no_kb())
+
+
 @router.callback_query(AdStates.waiting_for_is_paid, YesNoCallback.filter())
 async def is_paid_answer(cb: CallbackQuery, callback_data: YesNoCallback, state: FSMContext):
     paid = (callback_data.answer == "yes")
     await state.update_data(is_paid=paid)
+    if paid:
+        await cb.message.answer("Введите цену тренировки в рублях (только число):", reply_markup=back_cancel_kb())
+        await state.set_state(AdStates.waiting_for_price)
+    else:
+        await finish_announcement(cb, state, price=None)
+    await cb.answer()
 
+
+@router.message(AdStates.waiting_for_price)
+async def got_price(msg: Message, state: FSMContext):
+    if msg.text == "❌ Отмена":
+        await msg.answer("Создание объявления отменено.", reply_markup=None)
+        await state.clear()
+        return
+    if msg.text == "⬅️ Назад":
+        await msg.answer("Тренировка платная?", reply_markup=yes_no_kb())
+        await state.set_state(AdStates.waiting_for_is_paid)
+        return
+    try:
+        price = int(msg.text.strip())
+        if price <= 0:
+            raise ValueError
+    except Exception:
+        await msg.reply("Введите положительное число (стоимость в рублях).", reply_markup=back_cancel_kb())
+        return
+    await finish_announcement(msg, state, price=price)
+
+
+async def finish_announcement(event, state: FSMContext, price: int | None):
+    # event: Message или CallbackQuery
     data = await state.get_data()
-    # Используем combine_date_time_with_tz для корректного tzinfo
     dt_full = validators.combine_date_time_with_tz(data["date"], data["time"])
-    dt_full = validators.to_naive_datetime(dt_full)  # <--- делаем наивным
-
+    dt_full = validators.to_naive_datetime(dt_full)
     async with SessionLocal() as session:
-        # 1) Убедимся, что пользователь есть
-        user = await session.get(User, cb.from_user.id)
+        user = await session.get(User, event.from_user.id)
         if not user:
             user = User(
-                id=cb.from_user.id,
-                username=cb.from_user.username,
-                first_name=cb.from_user.first_name or "",
-                last_name=cb.from_user.last_name,
+                id=event.from_user.id,
+                username=event.from_user.username,
+                first_name=event.from_user.first_name or "",
+                last_name=event.from_user.last_name,
                 rating_sum=0,
                 rating_votes=0,
                 rating=Decimal("5.00"),
             )
             session.add(user)
             await session.flush()
-
-        # 2) Создаём объявление
         ann = Announcement(
             author_id    = user.id,
             hall_id      = data["hall_id"],
             datetime     = dt_full,
-            capacity     = data["players"],  # ← было players_need
+            capacity     = data["players"],
             roles        = data["roles"],
             balls_need   = data["balls_need"],
             restrictions = data["restrictions"],
-            is_paid      = paid,
+            is_paid      = data["is_paid"],
+            price        = price if data["is_paid"] else None,
         )
         session.add(ann)
         await session.commit()
         await session.refresh(ann)
-
-        # Получаем название зала
         hall_name = await session.scalar(select(Hall.name).where(Hall.id == ann.hall_id))
-
-    # Формируем и отправляем текст
     text = (
         "🏐 <b>Объявление создано</b>\n"
         f"ID: <code>{ann.id}</code>\n"
@@ -220,10 +247,15 @@ async def is_paid_answer(cb: CallbackQuery, callback_data: YesNoCallback, state:
         f"Мячи: {'нужны' if ann.balls_need else 'не нужны'}\n"
         f"Ограничения: {ann.restrictions}\n"
         f"Тип: {'Платная' if ann.is_paid else 'Бесплатная'}"
+        + (f"\n💰 Цена: {ann.price} руб." if ann.is_paid and ann.price else "")
     )
-    await cb.message.edit_text(text)
+    if hasattr(event, "message"):
+        await event.message.edit_text(text)
+    else:
+        await event.answer(text)
     await state.clear()
-    await cb.answer("Сохранено!")
+    if hasattr(event, "answer"):
+        await event.answer("Сохранено!")
 
 
 def render_announcement(ann: Announcement, hall_name: str = None) -> str:
@@ -247,6 +279,7 @@ def render_announcement(ann: Announcement, hall_name: str = None) -> str:
         f"Мячи: {'нужны' if ann.balls_need else 'не нужны'}\n"
         f"Ограничения: {ann.restrictions}\n"
         f"Тип: {'Платная' if ann.is_paid else 'Бесплатная'}"
+        + (f"\n💰 Цена: {ann.price} руб." if ann.is_paid and ann.price else "")
     )
 
 
@@ -498,7 +531,7 @@ async def editing_restrict_step(msg: Message, state: FSMContext):
     await state.clear()
 
 
-@router.message(AdStates.editing_is_paid)
+@router.message(AdStates.editing_paid)
 async def editing_paid_step(msg: Message, state: FSMContext):
     if msg.text == "❌ Отмена":
         await msg.answer("Редактирование отменено.", reply_markup=None)

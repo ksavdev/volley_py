@@ -9,6 +9,8 @@ class AdStates(StatesGroup):
     waiting_for_balls_needed     = State()  # ответ Да/Нет на «мячи нужны?»
     waiting_for_restrictions     = State()  # ввод ограничений
     waiting_for_is_paid          = State()  # ответ Да/Нет на «платная?»
+    waiting_for_price            = State()  # ← добавить для цены
+
     # Для редактирования:
     choosing_field      = State()
     editing_date        = State()
@@ -17,4 +19,5 @@ class AdStates(StatesGroup):
     editing_roles       = State()
     editing_balls       = State()
     editing_restrict    = State()
-    editing_is_paid     = State()
+    editing_paid        = State()  # ← добавить для редактирования платности
+    editing_price       = State()  # ← добавить для редактирования цены

@@ -64,9 +64,16 @@ async def choose_type(cb: CallbackQuery):
         await cb.answer()
         return
 
+    rows = []
+    for ad in ads:
+        when = ad.datetime.strftime("%d.%m %H:%M")
+        price_str = f" • {ad.price} руб." if ad.is_paid and ad.price else ""
+        text = f"{ad.hall.name} • {when} • {'Платная' if ad.is_paid else 'Бесплатная'}{price_str}"
+        rows.append([InlineKeyboardButton(text=text, callback_data=f"ad_{ad.id}")])
+
     await cb.message.edit_text(
         "Доступные тренировки:",
-        reply_markup=ad_list_kb(ads)
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
     )
     await cb.answer()
 

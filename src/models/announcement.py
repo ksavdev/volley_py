@@ -32,6 +32,7 @@ class Announcement(Base):
     balls_need:    Mapped[bool]   = Column(Boolean, nullable=False)
     restrictions:  Mapped[str]    = Column(String(120), nullable=True)
     is_paid:       Mapped[bool]   = Column(Boolean, nullable=False)
+    price:         Mapped[int | None] = Column(Integer, nullable=True)  # ← новое поле
     created_at:    Mapped[dt.datetime] = Column(
         DateTime(timezone=True),
         default=dt.datetime.now(dt.timezone.utc),
@@ -45,4 +46,4 @@ class Announcement(Base):
         back_populates="announcement",
         cascade="all, delete-orphan",
     )
-    
+

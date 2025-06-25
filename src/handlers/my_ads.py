@@ -123,6 +123,7 @@ async def handle_myad_details(cb: CallbackQuery):
         f"<b>Мячи:</b> {'нужны' if ad.balls_need else 'не нужны'}\n"
         f"<b>Ограничения:</b> {ad.restrictions}\n"
         f"<b>Тип:</b> {'Платная' if ad.is_paid else 'Бесплатная'}"
+        + (f"\n<b>Цена:</b> {ad.price} руб." if ad.is_paid and ad.price else "")
     )
     await cb.message.edit_text(text, reply_markup=manage_keyboard(ad.id))
     await cb.answer()
