@@ -4,7 +4,7 @@ yes_no_kb = InlineKeyboardMarkup(
     inline_keyboard=[
         [
             InlineKeyboardButton(text="✅ Да", callback_data="yes"),
-            InlineKeyboardButton(text="❌ Нет", callback_data="no"),
+            InlineKeyboardButton(text="❌ Не", callback_data="no"),
         ]
     ]
 )

@@ -31,7 +31,7 @@ def manage_keyboard(ad_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="✏️ Изменить", callback_data=f"myad_edit_{ad_id}")],
             [InlineKeyboardButton(text="🗑️ Удалить",   callback_data=f"myad_del_{ad_id}")],
-            [InlineKeyboardButton(text="« Назад",       callback_data="myad_back")],
+            [InlineKeyboardButton(text="« Назад",       callback_data="back")],
         ]
     )
 
@@ -77,3 +77,6 @@ def announcement_manage_keyboard(announcement: Announcement) -> InlineKeyboardMa
     Используется, например, чтобы вернуться из меню «Игроки».
     """
     return choose_field_keyboard(announcement.id)
+
+
+

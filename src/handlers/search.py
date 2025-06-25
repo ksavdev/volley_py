@@ -41,8 +41,9 @@ async def choose_type(cb: CallbackQuery):
                 select(Announcement)
                 .where(
                     Announcement.is_paid == is_paid,
-                    Announcement.datetime > now  # ← фильтр только будущие тренировки
+                    Announcement.datetime > now
                 )
+                .options(selectinload(Announcement.hall))  # ← вот это важно!
                 .order_by(Announcement.datetime)
             )
         ).all()

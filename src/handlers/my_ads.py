@@ -1,291 +1,85 @@
-import datetime as dt
-from datetime import timedelta
+# src/handlers/my_ads_players.py
+from __future__ import annotations
 
 from aiogram import Router, F
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import CallbackQuery
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from src.models import SessionLocal
+from src.models.signup import Signup, SignupStatus
 from src.models.announcement import Announcement
-from src.states.edit_states import EditStates
-from src.keyboards.announce_manage import (
-    list_keyboard,
-    manage_keyboard,
-    choose_field_keyboard,
-)
-from src.utils import validators
+from src.keyboards.manage_players import players_kb
 from src.utils.helpers import local
 
-router = Router(name="my_ads")
+router = Router(name="players")
 
 
-# ───────────── /my — список объявлений ─────────────────────────
-@router.message(Command("my"))
-async def cmd_my_ads(message: Message):
-    author_id = message.from_user.id
-    async with SessionLocal() as session:
-        ads = (
-            await session.scalars(
-                select(Announcement)
-                .options(selectinload(Announcement.hall))
-                .where(Announcement.author_id == author_id)
-                .order_by(Announcement.datetime.desc())
-            )
-        ).all()
+async def _render_players(message, ad: Announcement) -> None:
+    """Обновить сообщение со списком игроков."""
+    accepted = [su for su in ad.signups if su.status == SignupStatus.accepted]
 
-    if not ads:
-        return await message.answer("У вас пока нет объявлений.")
-
-    await message.answer("Ваши объявления:", reply_markup=list_keyboard(ads))
+    await message.edit_text(
+        f"Принятые игроки ({ad.hall.name} "
+        f"{local(ad.datetime).strftime('%d.%m %H:%M')}):",
+        reply_markup=players_kb(accepted, ad.id),
+    )
 
 
-# ───────────── показать список записавшихся игроков ────────────
 @router.callback_query(F.data.startswith("players_"))
 async def show_players(cb: CallbackQuery):
-    from src.handlers.my_ads_players import show_players as _show
-    await _show(cb)
-
-
-# ───────────── открыть детали объявления ───────────────────────
-@router.callback_query(
-    F.data.startswith("myad_")
-    & ~F.data.startswith(("myad_del_", "myad_edit_"))
-    & (F.data != "myad_back")
-)
-async def myad_chosen(cb: CallbackQuery):
     ad_id = int(cb.data.split("_")[1])
-    async with SessionLocal() as session:
-        ad = await session.get(
-            Announcement, ad_id, options=[selectinload(Announcement.hall)]
-        )
-    if not ad or ad.author_id != cb.from_user.id:
-        return await cb.answer("Объявление не найдено.", show_alert=True)
 
-    text = (
-        f"<b>ID:</b> {ad.id}\n"
-        f"<b>Зал:</b> {ad.hall.name}\n"
-        f"<b>Дата/время:</b> {local(ad.datetime).strftime('%d.%m.%Y %H:%M')}\n"
-        f"<b>Нужно игроков:</b> {ad.players_need}\n"
-        f"<b>Роли:</b> {ad.roles}\n"
-        f"<b>Мячи:</b> {'нужны' if ad.balls_need else 'не нужны'}\n"
-        f"<b>Ограничения:</b> {ad.restrictions}\n"
-        f"<b>Тип:</b> {'Платная' if ad.is_paid else 'Бесплатная'}"
-    )
-    await cb.message.edit_text(text, reply_markup=manage_keyboard(ad.id))
-    await cb.answer()
-
-
-# ───────────── удалить объявление ──────────────────────────────
-@router.callback_query(F.data.startswith("myad_del_"))
-async def myad_delete(cb: CallbackQuery):
-    ad_id = int(cb.data.split("_")[2])
-    async with SessionLocal() as session:
-        ad = await session.get(Announcement, ad_id)
-        if not ad or ad.author_id != cb.from_user.id:
-            return await cb.answer("Объявление не найдено.", show_alert=True)
-        await session.delete(ad)
-        await session.commit()
-
-    await cb.message.edit_text(f"Объявление ID {ad_id} удалено ✅")
-    await cb.answer("Удалено!", show_alert=True)
-
-
-# ───────────── инициировать редактирование ─────────────────────
-@router.callback_query(F.data.startswith("myad_edit_"))
-async def myad_edit(cb: CallbackQuery, state: FSMContext):
-    ad_id = int(cb.data.split("_")[2])
-    async with SessionLocal() as session:
-        ad = await session.get(Announcement, ad_id)
-    now = dt.datetime.now(local.tz)
-    if now > ad.datetime + timedelta(hours=1):
-        return await cb.answer(
-            "⏳ Тренировка прошла более часа назад — редактирование невозможно.",
-            show_alert=True,
+    async with SessionLocal() as s:
+        ad = await s.get(
+            Announcement,
+            ad_id,
+            options=[
+                selectinload(Announcement.hall),
+                # грузим сразу только accepted-записи + player
+                selectinload(
+                    Announcement.signups.and_(Signup.status == SignupStatus.accepted)
+                ).selectinload(Signup.player),
+            ],
         )
 
-    await state.update_data(ad_id=ad_id)
-    await cb.message.edit_text("Что изменить?", reply_markup=choose_field_keyboard(ad_id))
-    await state.set_state(EditStates.choosing_field)
+    if not ad:
+        await cb.answer("Объявление не найдено.", show_alert=True)
+        return
+
+    await _render_players(cb.message, ad)
     await cb.answer()
 
 
-# ───────────── отмена редактирования ──────────────────────────
-@router.callback_query(F.data == "edit_cancel")
-async def cancel_edit(cb: CallbackQuery, state: FSMContext):
-    await cb.message.edit_text("❌ Редактирование отменено.")
-    await state.clear()
-    await cb.answer()
+@router.callback_query(F.data.startswith("kick_"))
+async def kick_player(cb: CallbackQuery):
+    ad_id, player_id = map(int, cb.data.split("_")[1:])
 
-
-# ───────────── старт редактирования «Кол-во игроков» ───────────
-@router.callback_query(F.data.startswith("edit_field_players_"))
-async def start_edit_players(cb: CallbackQuery, state: FSMContext):
-    ad_id = int(cb.data.rsplit("_", 1)[1])
-    await state.update_data(ad_id=ad_id, field="players")
-    await cb.message.edit_text("Введите новое количество игроков (число)")
-    await state.set_state(EditStates.editing_players)
-    await cb.answer()
-
-
-# ───────────── выбор любого другого поля ────────────────────────
-@router.callback_query(EditStates.choosing_field, F.data.startswith("edit_field_"))
-async def choose_field(cb: CallbackQuery, state: FSMContext):
-    parts = cb.data.split("_")   # ["edit","field","<name>","<id>"]
-    field = parts[2]
-    await state.update_data(field=field)
-
-    prompts = {
-        "date":     "Введите новую дату <b>ДД.MM.ГГГГ</b>",
-        "time":     "Введите новое время <b>ЧЧ:ММ</b>",
-        "roles":    "Введите новые роли или «-»",
-        "balls":    "Нужны ли мячи? (да/нет)",
-        "restrict": "Введите новые ограничения или «-»",
-        "paid":     "Тренировка платная? (да/нет)",
-    }
-    await cb.message.edit_text(prompts[field])
-
-    mapping = {
-        "date":     EditStates.editing_date,
-        "time":     EditStates.editing_time,
-        "roles":    EditStates.editing_roles,
-        "balls":    EditStates.editing_balls,
-        "restrict": EditStates.editing_restrict,
-        "paid":     EditStates.editing_is_paid,
-    }
-    await state.set_state(mapping[field])
-    await cb.answer()
-
-
-# ───────────── общий helper для сохранения и рендера ────────────
-async def _apply_edit(cb_msg: Message | CallbackQuery, state: FSMContext, *, new_dt: dt.datetime = None, **fields):
-    data = await state.get_data()
-    ad_id = data["ad_id"]
-
-    async with SessionLocal() as session:
-        ad = await session.get(Announcement, ad_id, options=[selectinload(Announcement.hall)])
-        if not ad:
-            await cb_msg.answer("❗️ Объявление не найдено.", show_alert=True)
-            await state.clear()
+    async with SessionLocal() as s:
+        signup = await s.scalar(
+            select(Signup).where(
+                Signup.announcement_id == ad_id,
+                Signup.player_id == player_id,
+                Signup.status == SignupStatus.accepted,
+            )
+        )
+        if not signup:
+            await cb.answer("Игрок уже убран.", show_alert=True)
             return
 
-        if new_dt is not None:
-            ad.datetime = new_dt
-        else:
-            for attr, val in fields.items():
-                setattr(ad, attr, val)
+        signup.status = SignupStatus.declined
+        await s.commit()
 
-        await session.commit()
-        await session.refresh(ad)
+        # обновляем объект объявления, чтобы снова передать в _render_players
+        await s.refresh(signup.announcement)
+        ad = signup.announcement
 
-    await cb_msg.answer("✅ Изменено!")
-
-    # заново отрисовать детали
-    text = (
-        f"<b>ID:</b> {ad.id}\n"
-        f"<b>Зал:</b> {ad.hall.name}\n"
-        f"<b>Дата/время:</b> {local(ad.datetime).strftime('%d.%m.%Y %H:%M')}\n"
-        f"<b>Нужно игроков:</b> {ad.players_need}\n"
-        f"<b>Роли:</b> {ad.roles}\n"
-        f"<b>Мячи:</b> {'нужны' if ad.balls_need else 'не нужны'}\n"
-        f"<b>Ограничения:</b> {ad.restrictions}\n"
-        f"<b>Тип:</b> {'Платная' if ad.is_paid else 'Бесплатная'}"
+    # уведомляем игрока
+    await cb.bot.send_message(
+        player_id,
+        "⛔️ Автор отменил вашу запись на тренировку.",
     )
-    kb = manage_keyboard(ad.id)
 
-    if isinstance(cb_msg, CallbackQuery):
-        await cb_msg.message.edit_text(text, reply_markup=kb)
-    else:
-        await cb_msg.answer(text, reply_markup=kb)
-
-    await state.clear()
-
-
-# ─────────────── 1. Изменение ДАТЫ ────────────────────────────
-@router.message(EditStates.editing_date)
-async def edit_date(msg: Message, state: FSMContext):
-    try:
-        new_date = validators.parse_date(msg.text)
-    except ValueError as e:
-        return await msg.reply(str(e))
-
-    data = await state.get_data()
-    ad_id = data["ad_id"]
-    async with SessionLocal() as session:
-        ad = await session.get(Announcement, ad_id)
-
-    new_dt = dt.datetime.combine(new_date, ad.datetime.timetz()).replace(
-        tzinfo=validators.MINSK_TZ
-    )
-    await _apply_edit(msg, state, new_dt=new_dt)
-
-
-# ─────────────── 2. Изменение ВРЕМЕНИ ─────────────────────────
-@router.message(EditStates.editing_time)
-async def edit_time(msg: Message, state: FSMContext):
-    try:
-        new_time = validators.parse_time(msg.text)
-    except ValueError as e:
-        return await msg.reply(str(e))
-
-    data = await state.get_data()
-    ad_id = data["ad_id"]
-    async with SessionLocal() as session:
-        ad = await session.get(Announcement, ad_id)
-
-    new_dt = dt.datetime.combine(ad.datetime.date(), new_time).replace(
-        tzinfo=validators.MINSK_TZ
-    )
-    await _apply_edit(msg, state, new_dt=new_dt)
-
-
-# ─────────────── 3. Изменение КОЛ-ВА ИГРОКОВ ───────────────────
-@router.message(EditStates.editing_players)
-async def edit_players(msg: Message, state: FSMContext):
-    try:
-        cnt = validators.is_positive_int(msg.text)
-    except ValueError as e:
-        return await msg.reply(str(e))
-    await _apply_edit(msg, state, players_need=cnt)
-
-
-# ─────────────── 4. Остальные поля ───────────────────────────
-@router.message(EditStates.editing_roles)
-async def edit_roles(msg: Message, state: FSMContext):
-    await _apply_edit(msg, state, roles=msg.text.strip() or "-")
-
-
-@router.message(EditStates.editing_balls)
-async def edit_balls(msg: Message, state: FSMContext):
-    text = msg.text.lower()
-    if text not in {"да", "нет"}:
-        return await msg.reply("Напишите «да» или «нет».")
-    await _apply_edit(msg, state, balls_need=(text == "да"))
-
-
-@router.message(EditStates.editing_restrict)
-async def edit_restrict(msg: Message, state: FSMContext):
-    await _apply_edit(msg, state, restrictions=msg.text.strip() or "-")
-
-
-@router.message(EditStates.editing_is_paid)
-async def edit_paid(msg: Message, state: FSMContext):
-    text = msg.text.lower()
-    if text not in {"да", "нет"}:
-        return await msg.reply("Напишите «да» или «нет».")
-    await _apply_edit(msg, state, is_paid=(text == "да"))
-
-
-# ───────────── удалить объявление (новый обработчик) ─────────────
-@router.callback_query(F.data.startswith("delete_ad_"))
-async def delete_ad(cb: CallbackQuery):
-    ann_id = int(cb.data.split("_")[-1])
-    async with SessionLocal() as session:
-        ann = await session.get(Announcement, ann_id)
-        now = dt.datetime.now(local.tz)
-        if ann.datetime < now:
-            await cb.message.answer("Нельзя удалять прошедшие тренировки!")
-            return
-        # ...удаление...
+    # перерисовываем список на месте
+    await _render_players(cb.message, ad)
+    await cb.answer("Игрок удалён ✅")
