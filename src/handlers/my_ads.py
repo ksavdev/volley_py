@@ -22,7 +22,7 @@ from src.keyboards.announce_manage import (
     list_keyboard,
     choose_field_keyboard,
 )
-from src.utils.helpers import local, MINSK_TZ
+from src.utils.validators import MINSK_TZ
 from src.handlers.start import whitelist_required
 
 router: Final = Router(name="my_ads")           # (было my_ads_players → логичнее my_ads)
@@ -40,7 +40,7 @@ async def _render_players(message: Message, ad: Announcement) -> None:
     await message.edit_text(
         (
             f"Принятые игроки "
-            f"({ad.hall.name} {local(ad.datetime).strftime('%d.%m %H:%M')}):"
+            f"({ad.hall.name} {ad.datetime.strftime('%d.%m %H:%M')}):"
         ),
         reply_markup=players_kb(accepted, ad.id),
     )
@@ -86,11 +86,19 @@ async def handle_myad_details(cb: CallbackQuery):
         await cb.answer("Объявление не найдено.", show_alert=True)
         return
 
+    now = dt.now(MINSK_TZ)
+    if ad.datetime <= now:
+        await cb.message.edit_text(
+            "❌ Это объявление уже прошло и не может быть изменено или удалено.",
+        )
+        await cb.answer()
+        return
+
     text = (
         f"<b>ID:</b> {ad.id}\n"
         f"<b>Зал:</b> {ad.hall.name}\n"
-        f"<b>Дата/время:</b> {local(ad.datetime).strftime('%d.%m.%Y %H:%M')}\n"
-        f"<b>Нужно игроков:</b> {ad.capacity}\n"  # ← было ad.players_need
+        f"<b>Дата/время:</b> {ad.datetime.strftime('%d.%m.%Y %H:%M')}\n"
+        f"<b>Нужно игроков:</b> {ad.capacity}\n"
         f"<b>Роли:</b> {ad.roles}\n"
         f"<b>Мячи:</b> {'нужны' if ad.balls_need else 'не нужны'}\n"
         f"<b>Ограничения:</b> {ad.restrictions}\n"
@@ -138,6 +146,11 @@ async def handle_delete_ad(cb: CallbackQuery):
             await cb.answer("Уже удалено.", show_alert=True)
             return
 
+        now = dt.now(MINSK_TZ)
+        if ad.datetime <= now:
+            await cb.answer("Нельзя удалять прошедшие тренировки!", show_alert=True)
+            return
+
         await session.delete(ad)
         await session.commit()
 
@@ -157,6 +170,16 @@ async def handle_edit_ad(cb: CallbackQuery, state: FSMContext):
     Кнопка «✏️ Изменить» — показываем меню выбора поля.
     """
     ad_id = int(cb.data.split("_")[2])
+    async with SessionLocal() as session:
+        ad: Announcement | None = await session.get(Announcement, ad_id)
+        now = dt.now(MINSK_TZ)
+        if not ad:
+            await cb.answer("Объявление не найдено.", show_alert=True)
+            return
+        if ad.datetime <= now:
+            await cb.answer("Нельзя изменять прошедшие тренировки!", show_alert=True)
+            return
+
     await state.update_data(ad_id=ad_id)
     await cb.message.edit_text(
         "Что изменить?", reply_markup=choose_field_keyboard(ad_id)

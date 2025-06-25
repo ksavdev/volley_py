@@ -18,7 +18,6 @@ from src.keyboards.common_kb import yes_no_kb, YesNoCallback
 from src.keyboards.cancel import cancel_kb
 from src.keyboards.back_cancel import back_cancel_kb
 from src.utils import validators
-from src.utils.helpers import local
 from src.keyboards.announce_manage import choose_field_keyboard
 from src.handlers.start import whitelist_required
 
@@ -172,9 +171,9 @@ async def is_paid_answer(cb: CallbackQuery, callback_data: YesNoCallback, state:
     await state.update_data(is_paid=paid)
 
     data = await state.get_data()
-    dt_full = dt.datetime.combine(data["date"], data["time"]).replace(
-        tzinfo=validators.MINSK_TZ
-    )
+    # Используем combine_date_time_with_tz для корректного tzinfo
+    dt_full = validators.combine_date_time_with_tz(data["date"], data["time"])
+    dt_full = validators.to_naive_datetime(dt_full)  # <--- делаем наивным
 
     async with SessionLocal() as session:
         # 1) Убедимся, что пользователь есть
@@ -211,13 +210,12 @@ async def is_paid_answer(cb: CallbackQuery, callback_data: YesNoCallback, state:
         hall_name = await session.scalar(select(Hall.name).where(Hall.id == ann.hall_id))
 
     # Формируем и отправляем текст
-    local_dt = local(ann.datetime)
     text = (
         "🏐 <b>Объявление создано</b>\n"
         f"ID: <code>{ann.id}</code>\n"
         f"Зал: {hall_name}\n"
-        f"Дата/время: {local_dt.strftime('%d.%m.%Y %H:%M')}\n"
-        f"Нужно игроков: {ann.capacity}\n"  # ← было ann.players_need
+        f"Дата/время: {ann.datetime.strftime('%d.%m.%Y %H:%M')}\n"
+        f"Нужно игроков: {ann.capacity}\n"
         f"Роли: {ann.roles}\n"
         f"Мячи: {'нужны' if ann.balls_need else 'не нужны'}\n"
         f"Ограничения: {ann.restrictions}\n"
@@ -230,7 +228,6 @@ async def is_paid_answer(cb: CallbackQuery, callback_data: YesNoCallback, state:
 
 def render_announcement(ann: Announcement, hall_name: str = None) -> str:
     now = dt.datetime.now(validators.MINSK_TZ)
-    local_dt = local(ann.datetime)
     header = "❌ <b>Тренировка прошла</b>\n\n" if ann.datetime <= now else ""
     if hall_name is None:
         hall = getattr(ann, "hall", None)
@@ -240,7 +237,7 @@ def render_announcement(ann: Announcement, hall_name: str = None) -> str:
         "🏐 <b>Объявление</b>\n"
         f"ID: <code>{ann.id}</code>\n"
         f"Зал: {hall_name}\n"
-        f"Дата/время: {local_dt.strftime('%d.%m.%Y %H:%M')}\n"
+        f"Дата/время: {ann.datetime.strftime('%d.%m.%Y %H:%M')}\n"
         f"Нужно игроков: {ann.capacity}\n"  # ← было ann.players_need
         f"Роли: {ann.roles}\n"
         f"Мячи: {'нужны' if ann.balls_need else 'не нужны'}\n"
@@ -301,8 +298,15 @@ async def editing_date_step(msg: Message, state: FSMContext):
             await msg.answer("Объявление не найдено.")
             await state.clear()
             return
-        # Меняем только дату, время оставляем прежним
+        now = dt.datetime.now(validators.MINSK_TZ)
+        if ad.datetime <= now:
+            await msg.answer("Нельзя изменять прошедшие тренировки.")
+            await state.clear()
+            return
+        # Меняем только дату, время оставляем прежним, tzinfo сохраняем
         new_dt = ad.datetime.replace(year=new_date.year, month=new_date.month, day=new_date.day)
+        if new_dt.tzinfo is None:
+            new_dt = new_dt.replace(tzinfo=validators.MINSK_TZ)
         ad.datetime = new_dt
         await session.commit()
     await msg.answer("Дата успешно изменена ✅")
@@ -335,8 +339,15 @@ async def editing_time_step(msg: Message, state: FSMContext):
             await msg.answer("Объявление не найдено.")
             await state.clear()
             return
-        # Меняем только время, дату оставляем прежней
+        now = dt.datetime.now(validators.MINSK_TZ)
+        if ad.datetime <= now:
+            await msg.answer("Нельзя изменять прошедшие тренировки.")
+            await state.clear()
+            return
+        # Меняем только время, дату оставляем прежней, tzinfo сохраняем
         new_dt = ad.datetime.replace(hour=new_time.hour, minute=new_time.minute)
+        if new_dt.tzinfo is None:
+            new_dt = new_dt.replace(tzinfo=validators.MINSK_TZ)
         ad.datetime = new_dt
         await session.commit()
     await msg.answer("Время успешно изменено ✅")
@@ -369,6 +380,11 @@ async def editing_players_step(msg: Message, state: FSMContext):
             await msg.answer("Объявление не найдено.")
             await state.clear()
             return
+        now = dt.datetime.now(validators.MINSK_TZ)
+        if ad.datetime <= now:
+            await msg.answer("Нельзя изменять прошедшие тренировки.")
+            await state.clear()
+            return
         ad.capacity = players
         await session.commit()
     await msg.answer("Количество игроков успешно изменено ✅")
@@ -395,6 +411,11 @@ async def editing_roles_step(msg: Message, state: FSMContext):
         ad = await session.get(Announcement, ad_id)
         if not ad:
             await msg.answer("Объявление не найдено.")
+            await state.clear()
+            return
+        now = dt.datetime.now(validators.MINSK_TZ)
+        if ad.datetime <= now:
+            await msg.answer("Нельзя изменять прошедшие тренировки.")
             await state.clear()
             return
         ad.roles = roles
@@ -429,6 +450,11 @@ async def editing_balls_step(msg: Message, state: FSMContext):
             await msg.answer("Объявление не найдено.")
             await state.clear()
             return
+        now = dt.datetime.now(validators.MINSK_TZ)
+        if ad.datetime <= now:
+            await msg.answer("Нельзя изменять прошедшие тренировки.")
+            await state.clear()
+            return
         ad.balls_need = balls_need
         await session.commit()
     await msg.answer("Параметр «Мячи нужны» успешно изменён ✅")
@@ -455,6 +481,11 @@ async def editing_restrict_step(msg: Message, state: FSMContext):
         ad = await session.get(Announcement, ad_id)
         if not ad:
             await msg.answer("Объявление не найдено.")
+            await state.clear()
+            return
+        now = dt.datetime.now(validators.MINSK_TZ)
+        if ad.datetime <= now:
+            await msg.answer("Нельзя изменять прошедшие тренировки.")
             await state.clear()
             return
         ad.restrictions = restrictions
@@ -489,7 +520,17 @@ async def editing_paid_step(msg: Message, state: FSMContext):
             await msg.answer("Объявление не найдено.")
             await state.clear()
             return
+        now = dt.datetime.now(validators.MINSK_TZ)
+        if ad.datetime <= now:
+            await msg.answer("Нельзя изменять прошедшие тренировки.")
+            await state.clear()
+            return
         ad.is_paid = is_paid
         await session.commit()
     await msg.answer("Тип тренировки успешно изменён ✅")
+    await state.clear()
+    await msg.answer("Тип тренировки успешно изменён ✅")
+    await state.clear()
+    await msg.answer("Тип тренировки успешно изменён ✅")
+    await state.clear()
     await state.clear()

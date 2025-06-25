@@ -51,3 +51,19 @@ def is_positive_int(text: str) -> int:
     if not text.isdigit() or int(text) <= 0:
         raise ValueError("Введите положительное число игроков")
     return int(text)
+
+def combine_date_time_with_tz(date_: dt.date, time_: dt.time) -> dt.datetime:
+    """
+    Корректно объединяет дату и время с учетом tzinfo (MINSK_TZ).
+    """
+    # Если time_ уже с tzinfo, strip его (иначе combine не даст tz-aware)
+    time_naive = time_.replace(tzinfo=None)
+    dt_full = dt.datetime.combine(date_, time_naive)
+    # Присваиваем tzinfo явно
+    return dt_full.replace(tzinfo=MINSK_TZ)
+
+def to_naive_datetime(dt_: dt.datetime) -> dt.datetime:
+    """
+    Убирает tzinfo, чтобы сохранить "как есть" в базе.
+    """
+    return dt_.replace(tzinfo=None)

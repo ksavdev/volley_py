@@ -13,7 +13,7 @@ from src.models.user import User
 
 from src.keyboards.my_signups import list_kb
 from src.keyboards.back_cancel import back_cancel_kb
-from src.utils.helpers import MINSK_TZ, local
+from src.utils.validators import MINSK_TZ
 from aiogram.fsm.context import FSMContext
 from src.states.signup_states import SignupStates
 from src.handlers.start import whitelist_required
@@ -90,7 +90,7 @@ async def myreq_clicked(cb: CallbackQuery):
     text = (
         f"ID заявки: {signup.id}\n"
         f"Зал: {ann.hall.name}\n"
-        f"Дата/время: {local(ann.datetime).strftime('%d.%m %H:%M')}\n"
+        f"Дата/время: {ann.datetime.strftime('%d.%m %H:%M')}\n"
         f"Статус: {status_text}"
     )
 
@@ -153,7 +153,7 @@ async def cancel_signup(cb: CallbackQuery):
         await cb.bot.send_message(
             signup.announcement.author_id,
             f"⛔️ Игрок отменил заявку на {signup.announcement.hall.name} "
-            f"{local(signup.announcement.datetime).strftime('%d.%m %H:%M')}"
+            f"{signup.announcement.datetime.strftime('%d.%m %H:%M')}"
         )
     except Exception:
         pass
@@ -234,7 +234,7 @@ async def ask_remove(cb: CallbackQuery):
             await cb.bot.send_message(
                 ann.author_id,
                 f"Игрок <a href='tg://user?id={player.id}'>{fio}</a> просит удалить его из тренировки "
-                f"{ann.hall.name} {local(ann.datetime).strftime('%d.%m %H:%M')}.\n\n"
+                f"{ann.hall.name} {ann.datetime.strftime('%d.%m %H:%M')}.\n\n"
                 "Если вы удалите игрока менее чем за 5 часов до тренировки, вы можете понизить его рейтинг на 1.00 балла.",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [

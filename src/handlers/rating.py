@@ -9,7 +9,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from src.models.announcement import Announcement
 from src.models.signup import Signup, SignupStatus
-from src.utils.helpers import local
 from src.utils.validators import MINSK_TZ
 try:
     import redis.asyncio as aioredis
@@ -98,6 +97,7 @@ async def send_rating_requests(bot):
         return
     try:
         now = dt.datetime.now(MINSK_TZ)
+        print(f"[RATING] Запуск задачи напоминаний о рейтинге: {now.strftime('%Y-%m-%d %H:%M:%S')}")
         # Интервал для поиска: 2 часа назад ± 5 минут
         target_time = now - dt.timedelta(hours=2)
         interval_start = target_time - dt.timedelta(minutes=5)
@@ -117,11 +117,11 @@ async def send_rating_requests(bot):
                 redis_key = f"ratings_sent:{ann.id}"
                 already_sent = await redis.get(redis_key)
                 if already_sent:
+                    print(f"[RATING] Уже отправляли напоминание для объявления {ann.id}")
                     continue
-                # Собираем список игроков
                 players = [s.player for s in ann.signups if s.status == SignupStatus.accepted]
+                notified_players = []
                 for player in players:
-                    # Список других игроков для оценки
                     others = [
                         {"user_id": p.id, "name": p.fio or f"{p.first_name} {p.last_name or ''}".strip()}
                         for p in players if p.id != player.id
@@ -139,15 +139,18 @@ async def send_rating_requests(bot):
                         "Пожалуйста, оцените других участников тренировки.",
                         reply_markup=rating_kb()
                     )
-                    # Устанавливаем FSM состояние для игрока
+                    # FSM состояние
                     from aiogram.fsm.storage.memory import MemoryStorage
                     storage = bot.dispatcher.storage if hasattr(bot, "dispatcher") else MemoryStorage()
                     await storage.set_data(bot=bot, chat_id=player.id, user_id=player.id, data=state_data)
                     await storage.set_state(bot=bot, chat_id=player.id, user_id=player.id, state=MultiRatingStates.waiting_for_ratings)
+                    notified_players.append(player.id)
                 # Установить флаг на 1 день
                 await redis.set(redis_key, "1", ex=86400)
+                print(f"[RATING] Напоминание отправлено по объявлению {ann.id} ({ann.hall.name} {local(ann.datetime).strftime('%d.%m %H:%M')}) игрокам: {notified_players}")
         await redis.close()
     except Exception as e:
-        # Логировать ошибку, если нужно
         print(f"send_rating_requests error: {e}")
-        print(f"send_rating_requests error: {e}")
+        import traceback
+        traceback.print_exc()
+        traceback.print_exc()

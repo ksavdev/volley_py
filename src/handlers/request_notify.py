@@ -8,7 +8,6 @@ from src.models import SessionLocal
 from src.models.user import User
 from src.models.announcement import Announcement
 from src.keyboards.common_kb import confirm_kb
-from src.utils.helpers import local
 
 async def notify_author(
     bot: Bot,
@@ -28,7 +27,7 @@ async def notify_author(
 
     text = (
         f"📥 <b>Новая заявка</b>\n\n"
-        f"{ad.hall.name} • {local(ad.datetime).strftime('%d.%m %H:%M')}\n"
+        f"{ad.hall.name} • {ad.datetime.strftime('%d.%m %H:%M')}\n"
         f"Игрок: <a href='tg://user?id={player.id}'>{fio}</a> "
         f"(⭐ {rating})\n"
         f"Роль: {role}\n\n"
@@ -43,4 +42,5 @@ async def notify_author(
             disable_notification=True,
         )
     except Exception as e:
+        print(f"[notify_author] send_message error: {e!r}")
         print(f"[notify_author] send_message error: {e!r}")

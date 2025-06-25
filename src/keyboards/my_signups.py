@@ -1,7 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from typing import Sequence
 from src.models.signup import Signup, SignupStatus
-from src.utils.helpers import local
 
 
 def list_kb(signups: Sequence[Signup]) -> InlineKeyboardMarkup:
@@ -14,7 +13,7 @@ def list_kb(signups: Sequence[Signup]) -> InlineKeyboardMarkup:
 
     for s in signups:
         ann  = s.announcement
-        dt   = local(ann.datetime).strftime("%d.%m %H:%M")
+        dt   = ann.datetime.strftime("%d.%m %H:%M")
         hall = ann.hall.name
         status = status_labels.get(s.status, s.status.name)
         text = f"{hall} • {dt} • {status}"
@@ -43,3 +42,4 @@ def confirm_cancel_kb(signup_id: int) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="« Назад", callback_data="my_back")],
         ]
     )
+    

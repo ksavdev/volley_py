@@ -1,7 +1,6 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from typing import Sequence
 from src.models.announcement import Announcement
-from src.utils.helpers import local
 
 
 def list_keyboard(ads: Sequence[Announcement]) -> InlineKeyboardMarkup:
@@ -10,7 +9,7 @@ def list_keyboard(ads: Sequence[Announcement]) -> InlineKeyboardMarkup:
             InlineKeyboardButton(
                 text=(
                     f"🏐 {a.id} • {a.hall.name} • "
-                    f"{local(a.datetime).strftime('%d.%m %H:%M')}"
+                    f"{a.datetime.strftime('%d.%m %H:%M')}"
                 ),
                 callback_data=f"myad_{a.id}",
             )

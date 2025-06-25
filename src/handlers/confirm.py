@@ -4,7 +4,6 @@ from sqlalchemy.orm import selectinload
 from src.models import SessionLocal
 from src.models.signup import Signup, SignupStatus
 from src.models.announcement import Announcement
-from src.utils.helpers import local
 from src.keyboards.common_kb import ConfirmCallback
 from src.handlers.start import whitelist_required
 
@@ -59,5 +58,6 @@ async def confirm_signup(callback: types.CallbackQuery, callback_data: ConfirmCa
         await callback.bot.send_message(chat_id=signup.player_id, text=text)
     except exceptions.TelegramBadRequest:
         # Игрок мог заблокировать бота — безопасно игнорируем
+        pass
         pass
         pass

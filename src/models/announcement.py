@@ -24,9 +24,8 @@ class Announcement(Base):
     author_id:     Mapped[int]    = Column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     hall_id:       Mapped[int]    = Column(Integer,    ForeignKey("halls.id", ondelete="RESTRICT"))
     datetime:      Mapped[dt.datetime] = Column(
-        DateTime(timezone=True),
+        DateTime(timezone=False),  # <--- убираем timezone=True
         nullable=False,
-        default=dt.datetime.now(dt.timezone.utc),
     )
     capacity:      Mapped[int]    = Column(Integer, nullable=False)  # ← было players_need
     roles:         Mapped[str]    = Column(String(120), nullable=True)
@@ -46,3 +45,4 @@ class Announcement(Base):
         back_populates="announcement",
         cascade="all, delete-orphan",
     )
+    

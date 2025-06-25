@@ -11,7 +11,6 @@ from src.models import SessionLocal
 from src.models.signup import Signup, SignupStatus
 from src.models.announcement import Announcement
 from src.handlers.announce import render_announcement
-from src.utils.helpers import local
 from src.keyboards.announce_manage import announcement_manage_keyboard
 from src.handlers.start import whitelist_required
 
@@ -51,7 +50,7 @@ async def show_players(cb: CallbackQuery):
         elif su.status == SignupStatus.declined:
             declined_players.append((su.player_id, name, role, rating))
 
-    when = local(ann.datetime).strftime("%d.%m %H:%M")
+    when = ann.datetime.strftime("%d.%m %H:%M")
     header = f"🏐 Игроки ({ann.hall.name} • {when}):\n\n"
 
     body_lines = []
@@ -223,4 +222,5 @@ async def unblock_declined(cb: CallbackQuery):
 
     await cb.answer("Игрок теперь может снова подать заявку.")
     # Обновить список игроков
+    await show_players(cb)
     await show_players(cb)

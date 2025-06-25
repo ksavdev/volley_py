@@ -18,7 +18,6 @@ from src.keyboards.search_menu import search_menu_kb
 from src.keyboards.ad_list import ad_list_kb
 from src.keyboards.signup_request import signup_kb
 from src.utils.validators import MINSK_TZ
-from src.utils.helpers import local
 from src.handlers.request_notify import notify_author
 from src.handlers.start import whitelist_required
 
@@ -145,7 +144,7 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
             )
 
     # — остальная информация по залу и времени
-    when = local(ad.datetime).strftime("%d.%m.%Y %H:%M")
+    when = ad.datetime.strftime("%d.%m.%Y %H:%M")
     hall_name = ad.hall.name if ad.hall else "—"
     hall_address = getattr(ad.hall, "address", "—")
 
@@ -246,4 +245,5 @@ async def got_role(msg: Message, state: FSMContext):
         await notify_author(msg.bot, ad, msg.from_user, role, signup.id)
         await msg.answer("✅ Запрос отправлен. Ожидайте подтверждения.")
 
+    await state.clear()
     await state.clear()
