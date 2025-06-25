@@ -18,6 +18,8 @@ async def menu_my_ads(msg: Message):
 
 @router.message(F.text == "📝 Мои заявки")
 async def menu_my_requests(msg: Message):
+    # Просто вызываем команду /requests, чтобы работало идентично
+    msg.text = "/requests"
     await cmd_requests(msg)
 
 # Для админов:

@@ -29,8 +29,10 @@ status_labels = {
 
 # ───────────── /requests — список моих заявок ────────────────
 @router.message(Command("requests"))
+@router.message(F.text == "📝 Мои заявки")
 @whitelist_required
 async def cmd_requests(msg: Message):
+    user_id = msg.from_user.id
     async with SessionLocal() as s:
         signups = (
             await s.scalars(
@@ -40,25 +42,45 @@ async def cmd_requests(msg: Message):
                         .selectinload(Announcement.hall)
                 )
                 .where(
-                    Signup.player_id == msg.from_user.id,
-                    Signup.status.in_([
-                        SignupStatus.pending,
-                        SignupStatus.accepted,
-                        SignupStatus.declined
-                    ]),
-                    # Уберите или закомментируйте фильтр по дате, если хотите видеть все заявки:
-                    # Signup.announcement.has(
-                    #     Announcement.datetime > dt.datetime.now(MINSK_TZ)
-                    # ),
+                    Signup.player_id == user_id,
+                    Signup.status.in_(["На рассмотрении", "Принята", "Отклонена"]),
                 )
                 .order_by(Signup.created_at)
             )
         ).all()
 
     if not signups:
-        return await msg.answer("У вас нет активных заявок.")
+        await msg.answer("У вас нет заявок.")
+        return
 
     await msg.answer("Мои заявки:", reply_markup=list_kb(signups))
+
+@router.callback_query(lambda cb: cb.data == "menu_requests")
+@whitelist_required
+async def cmd_requests_callback(cb: CallbackQuery):
+    user_id = cb.from_user.id
+    async with SessionLocal() as s:
+        signups = (
+            await s.scalars(
+                select(Signup)
+                .options(
+                    selectinload(Signup.announcement)
+                        .selectinload(Announcement.hall)
+                )
+                .where(
+                    Signup.player_id == user_id,
+                    Signup.status.in_(["На рассмотрении", "Принята", "Отклонена"]),
+                )
+                .order_by(Signup.created_at)
+            )
+        ).all()
+
+    if not signups:
+        await cb.message.answer("У вас нет заявок.")
+        return
+
+    await cb.message.answer("Мои заявки:", reply_markup=list_kb(signups))
+    await cb.answer()
 
 
 # ───────────── клик по заявке ────────────────────────────────
@@ -324,5 +346,4 @@ async def do_remove_player(cb: CallbackQuery):
         "Игрок удалён из тренировки."
         + ("\nРейтинг игрока понижен на 1.00 балла." if penalty else "")
     )
-    await cb.answer()
     await cb.answer()

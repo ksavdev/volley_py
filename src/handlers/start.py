@@ -156,7 +156,7 @@ async def menu_new_callback(cb: CallbackQuery, state: FSMContext):
 @whitelist_required
 async def menu_my_callback(cb: CallbackQuery):
     from src.handlers.my_ads import cmd_my_ads
-    await cmd_my_ads(cb.message)
+    await cmd_my_ads(cb)  # <-- передаём сам CallbackQuery, а не cb.message
     await cb.answer()
 
 @router.callback_query(lambda c: c.data == "menu_search")
@@ -169,8 +169,8 @@ async def menu_search_callback(cb: CallbackQuery):
 @router.callback_query(lambda c: c.data == "menu_requests")
 @whitelist_required
 async def menu_requests_callback(cb: CallbackQuery):
-    from src.handlers.my_signups import cmd_requests
-    await cmd_requests(cb.message)
+    from src.handlers.my_signups import cmd_requests_callback
+    await cmd_requests_callback(cb)
     await cb.answer()
 
 @router.callback_query(lambda c: c.data == "menu_profile")

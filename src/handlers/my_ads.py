@@ -50,23 +50,40 @@ async def _render_players(message: Message, ad: Announcement) -> None:
 #                             /my  (список объявлений)                        #
 # --------------------------------------------------------------------------- #
 @router.message(Command("my"))
+@router.message(F.text == "📋 Мои объявления")
+@router.callback_query(lambda cb: cb.data == "menu_my")
 @whitelist_required
-async def cmd_my_ads(message: Message):
-    author_id = message.from_user.id
+async def cmd_my_ads(event):
+    # Универсально получаем user_id
+    user_id = getattr(event.from_user, "id", None)
+    if user_id is None and hasattr(event, "message") and event.message:
+        user_id = event.message.from_user.id
+    if user_id is None:
+        await event.answer("Не удалось определить пользователя.", show_alert=True)
+        return
+
     async with SessionLocal() as session:
         ads = (
             await session.scalars(
                 select(Announcement)
                 .options(selectinload(Announcement.hall))
-                .where(Announcement.author_id == author_id)
+                .where(Announcement.author_id == user_id)
                 .order_by(Announcement.datetime.desc())
             )
         ).all()
 
     if not ads:
-        return await message.answer("У вас пока нет объявлений.")
+        # Для CallbackQuery используем answer, для Message — answer
+        if hasattr(event, "message"):
+            await event.message.answer("У вас пока нет объявлений.")
+        else:
+            await event.answer("У вас пока нет объявлений.", show_alert=True)
+        return
 
-    await message.answer("Ваши объявления:", reply_markup=list_keyboard(ads))
+    if hasattr(event, "message"):
+        await event.message.answer("Ваши объявления:", reply_markup=list_keyboard(ads))
+    else:
+        await event.answer("Ваши объявления:", show_alert=True)
 
 
 # --------------------------------------------------------------------------- #
