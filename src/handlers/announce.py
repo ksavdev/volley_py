@@ -227,7 +227,7 @@ async def is_paid_answer(cb: CallbackQuery, callback_data: YesNoCallback, state:
 
 
 def render_announcement(ann: Announcement, hall_name: str = None) -> str:
-    now = dt.datetime.now(validators.MINSK_TZ)
+    now = dt.datetime.now(validators.MINSK_TZ).replace(tzinfo=None)
     header = "❌ <b>Тренировка прошла</b>\n\n" if ann.datetime <= now else ""
     if hall_name is None:
         hall = getattr(ann, "hall", None)
@@ -252,7 +252,7 @@ async def delete_ad(cb: CallbackQuery):
     ann_id = int(cb.data.split("_")[-1])
     async with SessionLocal() as session:
         ann = await session.get(Announcement, ann_id)
-        now = dt.datetime.now(validators.MINSK_TZ)
+        now = dt.datetime.now(validators.MINSK_TZ).replace(tzinfo=None)
         if ann.datetime < now:
             await cb.message.answer("Нельзя удалять прошедшие тренировки!")
             return

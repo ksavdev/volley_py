@@ -44,6 +44,7 @@ async def cmd_search(msg: Message):
 async def choose_type(cb: CallbackQuery):
     is_paid = (cb.data == "search_paid")
     now = dt.datetime.now(MINSK_TZ)
+    now_naive = now.replace(tzinfo=None)  # <-- make naive
 
     async with SessionLocal() as session:
         ads = (
@@ -51,7 +52,7 @@ async def choose_type(cb: CallbackQuery):
                 select(Announcement)
                 .where(
                     Announcement.is_paid == is_paid,
-                    Announcement.datetime > now
+                    Announcement.datetime > now_naive
                 )
                 .options(selectinload(Announcement.hall))  # ← вот это важно!
                 .order_by(Announcement.datetime)
@@ -87,6 +88,7 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
     """
     ad_id = int(cb.data.split("_", 1)[1])
     now = dt.datetime.now(MINSK_TZ)
+    now_naive = now.replace(tzinfo=None)  # <-- ensure naive
 
     # — загрузка объявления с hall и signups->player
     async with SessionLocal() as session:
@@ -119,7 +121,11 @@ async def ad_chosen(cb: CallbackQuery, state: FSMContext):
             show_alert=True
         )
 
-    if ad.datetime <= now:
+    # --- fix: always compare naive with naive ---
+    ad_dt = ad.datetime
+    if ad_dt.tzinfo is not None:
+        ad_dt = ad_dt.replace(tzinfo=None)
+    if ad_dt <= now_naive:
         return await cb.answer("К сожалению, эта тренировка уже прошла.", show_alert=True)
 
     # — считаем слоты и готовим блок принятых игроков

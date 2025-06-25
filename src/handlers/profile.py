@@ -6,6 +6,7 @@ from src.models import SessionLocal
 from src.models.user import User
 from src.models.signup import Signup, SignupStatus
 from src.models.announcement import Announcement
+import datetime as dt
 
 router = Router(name="profile")
 
@@ -55,9 +56,11 @@ async def cmd_profile(event):
             select(func.count()).select_from(Announcement).where(Announcement.author_id == user_id)
         )
         # Сколько раз его тренировки были заполнены полностью
+        now = dt.datetime.now().replace(tzinfo=None)
         full_ads = await session.scalar(
             select(func.count()).select_from(Announcement).where(
                 Announcement.author_id == user_id,
+                Announcement.datetime <= now,
                 # Например: тренировка прошла и заявок столько же, сколько capacity
                 Announcement.capacity == (
                     select(func.count())
@@ -65,7 +68,7 @@ async def cmd_profile(event):
                     .where(
                         Signup.announcement_id == Announcement.id,
                         Signup.status == SignupStatus.accepted
-                    )
+                    ).scalar_subquery()
                 )
             )
         )

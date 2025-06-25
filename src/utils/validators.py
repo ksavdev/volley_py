@@ -5,6 +5,12 @@ from typing import Tuple
 # Минск UTC+3
 MINSK_TZ = dt.timezone(dt.timedelta(hours=3))
 
+def local(dt_obj):
+    """Return dt_obj as aware datetime in Minsk TZ (for display)."""
+    if dt_obj.tzinfo is None:
+        return dt_obj.replace(tzinfo=MINSK_TZ)
+    return dt_obj.astimezone(MINSK_TZ)
+
 # ────────── Регулярки ──────────
 _DATE_RE = re.compile(r"^([0-3]?\d)\.([01]?\d)\.(\d{4})$")           # 1.05.2025 или 01.05.2025
 _TIME_RE = re.compile(r"^([0-1]?\d|2[0-3]):([0-5]\d)$")              # 1:22 или 01:22 или 23:59

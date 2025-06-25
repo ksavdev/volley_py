@@ -22,16 +22,22 @@ class RegistrationStates(StatesGroup):
 def whitelist_required(handler):
     @wraps(handler)
     async def wrapper(event, *args, **kwargs):
-        user_id = event.from_user.id if hasattr(event, "from_user") else event.message.from_user.id
+        # Получаем user_id только из event.from_user (Message и CallbackQuery)
+        uid = getattr(event, "from_user", None)
+        if uid is None:
+            # safety-net: если нет from_user (например, системные события)
+            return await handler(event, *args, **kwargs)
+        user_id = uid.id
         from src.config import ADMINS, is_zbt_enabled_db
+        print(f"[whitelist_required] user_id={user_id}, ADMINS={ADMINS}")  # DEBUG
+        if user_id in ADMINS:
+            return await handler(event, *args, **kwargs)
         zbt_enabled = await is_zbt_enabled_db()
         if not zbt_enabled:
-            # ЗБТ выключен — доступ открыт всем
             return await handler(event, *args, **kwargs)
-        # ЗБТ включён — проверяем whitelist
         async with SessionLocal() as session:
             user = await session.get(User, user_id)
-            if user_id not in ADMINS and (not user or not user.is_whitelisted):
+            if not user or not user.is_whitelisted:
                 if hasattr(event, "answer"):
                     await event.answer("Доступ только для участников закрытого тестирования.", show_alert=True)
                 else:
@@ -41,6 +47,7 @@ def whitelist_required(handler):
     return wrapper
 
 @router.message(CommandStart())
+@whitelist_required
 async def on_start(message: Message, state: FSMContext):
     tg_user = message.from_user
     tg_id = tg_user.id
@@ -83,6 +90,7 @@ async def on_start(message: Message, state: FSMContext):
         "Я помогу найти или создать тренировку по волейболу в Минске.\n"
         "Выберите действие из меню ниже 👇"
     )
+    print(f"[DEBUG] ADMINS={ADMINS}, your_id={message.from_user.id}")  # временно для отладки
     # Убираем ReplyKeyboardMarkup, показываем InlineKeyboardMarkup
     inline_menu = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Создать объявление", callback_data="menu_new")],
@@ -121,6 +129,7 @@ async def on_start(message: Message, state: FSMContext):
         ], scope={"type": "chat", "chat_id": message.from_user.id})
 
 @router.message(Command("start"))
+@whitelist_required
 async def cmd_start(msg: Message, bot: Bot):
     if msg.from_user.id in ADMINS:
         await bot.set_my_commands([
@@ -148,8 +157,20 @@ async def cmd_start(msg: Message, bot: Bot):
 @router.callback_query(lambda c: c.data == "menu_new")
 @whitelist_required
 async def menu_new_callback(cb: CallbackQuery, state: FSMContext):
-    from src.handlers.announce import cmd_new
-    await cmd_new(cb.message, state)
+    # Вместо вызова cmd_new(cb.message, ...) — сразу запускайте бизнес-логику здесь!
+    # Например, скопируйте нужный код из cmd_new или вынесите бизнес-логику в отдельную функцию.
+    from src.models.hall import Hall
+    from src.keyboards.halls import halls_keyboard
+    from src.states.announce_states import AdStates
+    from sqlalchemy import select
+    async with SessionLocal() as session:
+        halls = (await session.scalars(select(Hall).order_by(Hall.name))).all()
+    if not halls:
+        await cb.message.answer("Пока нет ни одного зала. Напишите администратору.")
+        await cb.answer()
+        return
+    await cb.message.answer("Выберите зал:", reply_markup=halls_keyboard(halls))
+    await state.set_state(AdStates.waiting_for_hall)
     await cb.answer()
 
 @router.callback_query(lambda c: c.data == "menu_my")
@@ -207,7 +228,7 @@ async def reg_phone(msg: Message, state: FSMContext):
             user.phone = phone
             await session.commit()
     await msg.answer("Регистрация завершена! Теперь вы можете пользоваться ботом.")
-    # Показать меню после регистрации
+    # Показываем только inline-меню, без main_menu_kb
     inline_menu = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Создать объявление", callback_data="menu_new")],
         [InlineKeyboardButton(text="📋 Мои объявления", callback_data="menu_my")],
@@ -230,5 +251,7 @@ async def cmd_profile(msg: Message):
 @whitelist_required
 async def cmd_profile(msg: Message):
     from src.handlers.profile import cmd_profile
+    await cmd_profile(msg)
+    await cmd_profile(msg)
     await cmd_profile(msg)
     await cmd_profile(msg)

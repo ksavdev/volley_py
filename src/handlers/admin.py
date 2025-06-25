@@ -61,7 +61,7 @@ async def cmd_whitelist(msg: Message):
     try:
         user_id = int(msg.text.split(maxsplit=1)[1])
     except Exception:
-        await msg.answer("Используйте: /whitelist <user_id>")
+        await msg.answer("Используйте: /whitelist <user_id>", parse_mode=None)
         return
     async with SessionLocal() as session:
         user = await session.get(User, user_id)
@@ -80,7 +80,7 @@ async def cmd_unwhitelist(msg: Message):
     try:
         user_id = int(msg.text.split(maxsplit=1)[1])
     except Exception:
-        await msg.answer("Используйте: /unwhitelist <user_id>")
+        await msg.answer("Используйте: /unwhitelist <user_id>", parse_mode=None)
         return
     async with SessionLocal() as session:
         user = await session.get(User, user_id)

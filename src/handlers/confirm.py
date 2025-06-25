@@ -36,7 +36,7 @@ async def confirm_signup(callback: types.CallbackQuery, callback_data: ConfirmCa
         # Получаем данные для уведомлений
         player = signup.player
         ann    = signup.announcement
-        when   = local(ann.datetime).strftime("%d.%m %H:%M")
+        when   = ann.datetime.strftime("%d.%m %H:%M")
         hall   = ann.hall.name
 
     # ——— Сообщение автору ———
@@ -58,6 +58,7 @@ async def confirm_signup(callback: types.CallbackQuery, callback_data: ConfirmCa
         await callback.bot.send_message(chat_id=signup.player_id, text=text)
     except exceptions.TelegramBadRequest:
         # Игрок мог заблокировать бота — безопасно игнорируем
+        pass
         pass
         pass
         pass

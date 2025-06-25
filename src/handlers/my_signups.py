@@ -1,4 +1,5 @@
 import datetime as dt
+from src.utils.helpers import MINSK_TZ
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -107,7 +108,12 @@ async def myreq_clicked(cb: CallbackQuery):
 
     # --- Проверка времени до тренировки ---
     now = dt.datetime.now(MINSK_TZ)
-    time_left = (ann.datetime - now).total_seconds() / 3600
+    ann_dt = ann.datetime
+    if ann_dt.tzinfo is None:
+        # Assume stored as naive in local time, localize it
+        ann_dt = MINSK_TZ.localize(ann_dt)
+    # Now both are aware, safe to subtract
+    time_left = (ann_dt - now).total_seconds() / 3600
 
     text = (
         f"ID заявки: {signup.id}\n"
@@ -281,9 +287,14 @@ async def ask_remove(cb: CallbackQuery):
 @router.callback_query(F.data.startswith("remove_player_"))
 @whitelist_required
 async def remove_player_confirm(cb: CallbackQuery):
-    _, ann_id, player_id = cb.data.split("_", 2)
-    ann_id = int(ann_id)
-    player_id = int(player_id)
+    # callback_data: remove_player_{ann_id}_{player_id}
+    parts = cb.data.split("_")
+    # parts = ['remove', 'player', '{ann_id}', '{player_id}']
+    if len(parts) < 4:
+        await cb.answer("Некорректные данные.", show_alert=True)
+        return
+    ann_id = int(parts[2])
+    player_id = int(parts[3])
     # Показываем автору выбор
     text = (
         "Вы действительно хотите удалить игрока из тренировки?\n"
@@ -310,10 +321,16 @@ async def remove_player_confirm(cb: CallbackQuery):
 @whitelist_required
 async def do_remove_player(cb: CallbackQuery):
     # callback_data: do_remove_player_{ann_id}_{player_id}_{penalty}
-    _, _, ann_id, player_id, penalty = cb.data.split("_", 4)
-    ann_id = int(ann_id)
-    player_id = int(player_id)
-    penalty = penalty == "penalty"
+    prefix = "do_remove_player_"
+    data = cb.data[len(prefix):]  # '{ann_id}_{player_id}_{penalty}'
+    try:
+        ann_id_str, player_id_str, penalty_str = data.split("_", 2)
+        ann_id = int(ann_id_str)
+        player_id = int(player_id_str)
+        penalty = penalty_str == "penalty"
+    except Exception:
+        await cb.answer("Некорректные данные.", show_alert=True)
+        return
     async with SessionLocal() as s:
         signup = await s.scalar(
             select(Signup).where(
@@ -330,7 +347,7 @@ async def do_remove_player(cb: CallbackQuery):
         if penalty:
             user = await s.get(User, player_id)
             if user:
-                user.rating_sum -= 100  # -1.00 в сотых
+                user.rating_sum -= 1.0  # -1.00 балла
                 user.rating_votes += 1
         await s.commit()
     # Уведомить игрока
