@@ -48,6 +48,7 @@ class Signup(Base):
         default=dt.datetime.now(dt.timezone.utc),
         nullable=False,
     )
+    comment:       Mapped[str]  = Column(String, nullable=True)
 
     # ────── связи ──────────────────────────────────────────────────
     player:       Mapped["User"]         = relationship(back_populates="signups")

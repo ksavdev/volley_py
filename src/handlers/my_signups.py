@@ -145,7 +145,7 @@ async def cancel_signup(cb: CallbackQuery):
 
         # переводим статус в отклонённый
         signup.status = SignupStatus.declined
-
+        signup.comment = "cancelled_by_user"
         await s.commit()
 
     # уведомляем автора
@@ -324,4 +324,5 @@ async def do_remove_player(cb: CallbackQuery):
         "Игрок удалён из тренировки."
         + ("\nРейтинг игрока понижен на 1.00 балла." if penalty else "")
     )
+    await cb.answer()
     await cb.answer()

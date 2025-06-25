@@ -201,19 +201,34 @@ async def got_role(msg: Message, state: FSMContext):
             await state.clear()
             return
 
-        # запретить повторную подачу, если была отклонена
-        declined = await session.scalar(
-            select(Signup.id).where(
+        # ищем отклонённую заявку
+        declined_signup = await session.scalar(
+            select(Signup).where(
                 Signup.announcement_id == ad_id,
                 Signup.player_id == msg.from_user.id,
                 Signup.status == SignupStatus.declined
             )
         )
-        if declined:
-            await msg.answer("Ваша заявка была отклонена и вы не можете подать её повторно.")
+        if declined_signup:
+            if getattr(declined_signup, "comment", None) != "cancelled_by_user":
+                await msg.answer("Ваша заявка была отклонена и вы не можете подать её повторно.")
+                await state.clear()
+                return
+            declined_signup.status = SignupStatus.pending
+            declined_signup.role = role
+            declined_signup.comment = None
+            await session.commit()
+            await session.refresh(declined_signup)
+            ad = await session.get(
+                Announcement, ad_id,
+                options=[selectinload(Announcement.hall)]
+            )
+            await notify_author(msg.bot, ad, msg.from_user, role, declined_signup.id)
+            await msg.answer("✅ Запрос отправлен. Ожидайте подтверждения.")
             await state.clear()
             return
 
+        # если не было отклонённой заявки — создаём новую
         signup = Signup(
             announcement_id=ad_id,
             player_id=msg.from_user.id,
@@ -227,9 +242,8 @@ async def got_role(msg: Message, state: FSMContext):
             Announcement, ad_id,
             options=[selectinload(Announcement.hall)]
         )
+        # уведомляем автора
+        await notify_author(msg.bot, ad, msg.from_user, role, signup.id)
+        await msg.answer("✅ Запрос отправлен. Ожидайте подтверждения.")
 
-    # уведомляем автора
-    await notify_author(msg.bot, ad, msg.from_user, role, signup.id)
-
-    await msg.answer("✅ Запрос отправлен. Ожидайте подтверждения.")
     await state.clear()
